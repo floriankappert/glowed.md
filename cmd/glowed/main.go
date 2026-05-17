@@ -11,7 +11,13 @@ import (
 	"github.com/khw1031/glowed/internal/app"
 )
 
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version" || os.Args[1] == "version") {
+		fmt.Println("glowed " + version)
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help") {
 		fmt.Println("glowed - Ghostty terminal Markdown browser/editor")
 		fmt.Println()

@@ -22,6 +22,17 @@ func TestCLIHelpSmoke(t *testing.T) {
 	}
 }
 
+func TestCLIVersionSmoke(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "--version")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run . --version failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "glowed dev") {
+		t.Fatalf("version output missing expected value:\n%s", out)
+	}
+}
+
 func TestResolveArgsInitialMarkdownFile(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "doc.md")

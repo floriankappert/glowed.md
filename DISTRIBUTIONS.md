@@ -8,7 +8,7 @@ The goal is discovery, not ranking. Homebrew tap namespaces are the recommended 
 
 - Tap/formula: `khw1031/tap/glowed`
 - Repository: `https://github.com/khw1031/glowed`
-- Install: source build for now; Homebrew tap planned
+- Install: `brew install khw1031/tap/glowed`
 - Binary: `glowed`
 - Focus: Ghostty-first terminal Markdown browser/editor
 - Implementation method: Codex GPT-5.5, local `TODO.md` planning file, pi agent coding harness

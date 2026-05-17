@@ -6,6 +6,12 @@ It treats the directory where it is launched as a project root, scans Markdown f
 
 Language versions: [한국어](README.ko.md) · [日本語](README.jp.md) · [中文](README.zh.md)
 
+## Screenshots
+
+![glowed Markdown preview in Ghostty](assets/glowed-preview.png)
+
+![glowed with sidebar and pi agent split in Ghostty](assets/glowed-ghostty-split.png)
+
 ## Project status
 
 This project is in an early MVP stage.
@@ -39,7 +45,7 @@ The current implementation was produced with Codex GPT-5.5, a local `TODO.md` pl
 
 ## Installation
 
-### From source, today
+### From source
 
 ```bash
 git clone https://github.com/khw1031/glowed.git
@@ -55,17 +61,15 @@ go build -o glowed ./cmd/glowed
 install -m 0755 glowed ~/.local/bin/glowed
 ```
 
-### With `go install`, after the public module path is finalized
-
-The repository should use a real module path before this is advertised publicly.
+### With `go install`
 
 ```bash
 go install github.com/khw1031/glowed/cmd/glowed@latest
 ```
 
-### Homebrew tap, planned
+### Homebrew tap
 
-The expected distribution model is a custom Homebrew tap first, not Homebrew core.
+The distribution model is a custom Homebrew tap first, not Homebrew core.
 
 ```bash
 brew tap khw1031/tap

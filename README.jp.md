@@ -39,7 +39,7 @@ glowed は現在、Go ベースのターミナルアプリケーションとし�
 
 ## インストール
 
-### 現時点では source build を推奨
+### Source build
 
 ```bash
 git clone https://github.com/khw1031/glowed.git
@@ -55,17 +55,15 @@ go build -o glowed ./cmd/glowed
 install -m 0755 glowed ~/.local/bin/glowed
 ```
 
-### public module path 確定後の `go install`
-
-公開配布の前に、repository は実際の module path を使う必要があります。
+### `go install`
 
 ```bash
 go install github.com/khw1031/glowed/cmd/glowed@latest
 ```
 
-### Homebrew tap 予定
+### Homebrew tap
 
-初期配布は Homebrew core ではなく custom Homebrew tap を想定しています。
+配布は Homebrew core ではなく custom Homebrew tap を優先します。
 
 ```bash
 brew tap khw1031/tap

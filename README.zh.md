@@ -39,7 +39,7 @@ glowed 目前实现为一个基于 Go 的终端应用。
 
 ## 安装
 
-### 目前建议从源码构建
+### Source build
 
 ```bash
 git clone https://github.com/khw1031/glowed.git
@@ -55,17 +55,15 @@ go build -o glowed ./cmd/glowed
 install -m 0755 glowed ~/.local/bin/glowed
 ```
 
-### public module path 确定后使用 `go install`
-
-在公开发布前，repository 应该改为真实的 module path。
+### `go install`
 
 ```bash
 go install github.com/khw1031/glowed/cmd/glowed@latest
 ```
 
-### 计划支持 Homebrew tap
+### Homebrew tap
 
-早期发布建议先使用 custom Homebrew tap，而不是 Homebrew core。
+发布优先使用 custom Homebrew tap，而不是 Homebrew core。
 
 ```bash
 brew tap khw1031/tap
