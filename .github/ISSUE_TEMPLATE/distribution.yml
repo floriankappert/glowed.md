@@ -1,0 +1,79 @@
+name: Distribution registration
+description: Share a public glowed Homebrew tap, modified build, or custom distribution.
+title: "[Distribution] yourname/tap/glowed"
+labels: ["distribution"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your glowed distribution.
+
+        This is not an approval request. It is a lightweight registry entry so users can discover which distribution exists, who maintains it, what changed, and how to install it.
+
+  - type: input
+    id: tap
+    attributes:
+      label: Tap/formula or package name
+      description: Use the full Homebrew tap path when applicable.
+      placeholder: "yourname/tap/glowed"
+    validations:
+      required: true
+
+  - type: input
+    id: repository
+    attributes:
+      label: Repository URL
+      placeholder: "https://github.com/yourname/glowed"
+    validations:
+      required: true
+
+  - type: input
+    id: install
+    attributes:
+      label: Install command
+      placeholder: "brew install yourname/tap/glowed"
+    validations:
+      required: false
+
+  - type: input
+    id: binary
+    attributes:
+      label: Installed binary name
+      placeholder: "glowed or glowed-yourname"
+    validations:
+      required: false
+
+  - type: textarea
+    id: changes
+    attributes:
+      label: What changed?
+      description: Briefly describe the main differences from this repository.
+      placeholder: "Added ..., changed ..., removed ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: method
+    attributes:
+      label: Agent/model/method used
+      description: If this distribution was customized with an AI agent, coding harness, or scripted process, please describe it.
+      placeholder: "Example: Codex GPT-5.5 + pi agent + local TODO.md planning notes; or manual changes only."
+    validations:
+      required: false
+
+  - type: textarea
+    id: tested
+    attributes:
+      label: Tested environment
+      description: Terminal, OS, architecture, and any important compatibility notes.
+      placeholder: "macOS 15, Ghostty, Apple Silicon"
+    validations:
+      required: false
+
+  - type: input
+    id: maintainer
+    attributes:
+      label: Maintainer/contact
+      placeholder: "@yourname"
+    validations:
+      required: false

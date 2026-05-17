@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/glowed.schema.json",
+  "title": "glowed configuration",
+  "description": "Configuration for the glowed terminal Markdown browser/editor.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON schema path for editor autocomplete/validation."
+    },
+    "prefix": {
+      "type": "string",
+      "default": "ctrl+g",
+      "description": "Prefix key used before prefixKeys actions."
+    },
+    "keys": {
+      "$ref": "#/$defs/keyMap",
+      "description": "Direct key bindings. These work without pressing prefix first."
+    },
+    "prefixKeys": {
+      "$ref": "#/$defs/keyMap",
+      "description": "Prefix key bindings. Press prefix first, then one of these keys."
+    },
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "style": {
+          "type": "string",
+          "default": "dark",
+          "description": "Glamour style name or JSON style path.",
+          "examples": ["dark", "light", "notty", "ascii"]
+        },
+        "preserveNewLines": {
+          "type": "boolean",
+          "default": true,
+          "description": "Preserve markdown newlines in rendered preview."
+        }
+      }
+    },
+    "footer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "type": "array",
+          "description": "Actions shown in the footer action bar. Footer items are clickable.",
+          "items": {
+            "$ref": "#/$defs/action"
+          },
+          "default": ["search", "edit", "sourceSelect", "openLLM", "toggleSidebar", "refresh", "quit"],
+          "uniqueItems": true
+        }
+      }
+    },
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "excludeDirs": {
+          "type": "array",
+          "description": "Directory names skipped during markdown scan.",
+          "items": {
+            "type": "string"
+          },
+          "default": [".git", "node_modules", "dist", "build", ".next", "target", "vendor"],
+          "uniqueItems": true
+        },
+        "maxFileBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1048576,
+          "description": "Skip markdown files larger than this many bytes."
+        }
+      }
+    },
+    "mouse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable mouse click/wheel support."
+        }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the external LLM session launcher."
+        },
+        "command": {
+          "type": "string",
+          "description": "External CLI command to launch, e.g. claude, codex, aider, or a wrapper script."
+        },
+        "terminalCommand": {
+          "type": "string",
+          "default": "ghostty",
+          "description": "Terminal command used to open the external LLM session."
+        },
+        "terminalApp": {
+          "type": "string",
+          "default": "Ghostty",
+          "description": "macOS application name for AppleScript/open when terminalCommand is Ghostty."
+        },
+        "openMode": {
+          "type": "string",
+          "enum": ["split-right", "split-left", "split-down", "split-up", "window"],
+          "default": "split-right",
+          "description": "How to open the external LLM session. On macOS Ghostty, split-* uses Ghostty AppleScript to split the current window."
+        },
+        "maxContextBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20480,
+          "description": "Maximum current-file markdown bytes sent as chat context."
+        },
+        "includeCurrentFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include current markdown content in initial LLM context. Default is false: path plus optional selection only."
+        },
+        "includeSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include selected original markdown when an app-managed selection exists."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "quit",
+        "search",
+        "edit",
+        "sourceSelect",
+        "openLLM",
+        "save",
+        "undo",
+        "redo",
+        "refresh",
+        "nextFocus",
+        "open",
+        "toggleSidebar"
+      ]
+    },
+    "key": {
+      "type": "string",
+      "description": "Key string as reported by Bubble Tea, e.g. q, /, tab, enter, ctrl+s, ctrl+g. User-friendly aliases such as ctrl+space are accepted and normalized to ctrl+@."
+    },
+    "keyMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quit": { "$ref": "#/$defs/key" },
+        "search": { "$ref": "#/$defs/key" },
+        "edit": { "$ref": "#/$defs/key" },
+        "sourceSelect": { "$ref": "#/$defs/key" },
+        "openLLM": { "$ref": "#/$defs/key" },
+        "save": { "$ref": "#/$defs/key" },
+        "undo": { "$ref": "#/$defs/key" },
+        "redo": { "$ref": "#/$defs/key" },
+        "refresh": { "$ref": "#/$defs/key" },
+        "nextFocus": { "$ref": "#/$defs/key" },
+        "open": { "$ref": "#/$defs/key" },
+        "toggleSidebar": { "$ref": "#/$defs/key" }
+      }
+    }
+  }
+}

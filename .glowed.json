@@ -1,0 +1,64 @@
+{
+  "$schema": "./glowed.schema.json",
+  "prefix": "ctrl+space",
+  "keys": {
+    "quit": "q",
+    "search": "/",
+    "edit": "e",
+    "sourceSelect": "v",
+    "openLLM": "c",
+    "toggleSidebar": "b",
+    "save": "ctrl+s",
+    "undo": "ctrl+z",
+    "redo": "ctrl+y",
+    "refresh": "r",
+    "nextFocus": "tab",
+    "open": "enter"
+  },
+  "prefixKeys": {
+    "toggleSidebar": "b",
+    "openLLM": "l",
+    "refresh": "r",
+    "quit": "q"
+  },
+  "preview": {
+    "style": "dark",
+    "preserveNewLines": true
+  },
+  "footer": {
+    "actions": [
+      "search",
+      "edit",
+      "sourceSelect",
+      "openLLM",
+      "toggleSidebar",
+      "refresh",
+      "quit"
+    ]
+  },
+  "scan": {
+    "excludeDirs": [
+      ".git",
+      "node_modules",
+      "dist",
+      "build",
+      ".next",
+      "target",
+      "vendor"
+    ],
+    "maxFileBytes": 1048576
+  },
+  "mouse": {
+    "enabled": true
+  },
+  "llm": {
+    "enabled": true,
+    "command": "pi",
+    "terminalCommand": "ghostty",
+    "terminalApp": "Ghostty",
+    "openMode": "split-right",
+    "maxContextBytes": 20480,
+    "includeCurrentFile": false,
+    "includeSelection": true
+  }
+}

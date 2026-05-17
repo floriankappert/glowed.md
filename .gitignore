@@ -1,0 +1,45 @@
+# Project-local task notes
+.TODO.md
+
+# Build artifacts
+/glowed
+/glowed.exe
+/bin/
+/dist/
+/build/
+/tmp/
+
+# Go test/coverage/profile outputs
+*.test
+*.out
+*.prof
+coverage.out
+coverage.*
+cpu.out
+mem.out
+
+# glowed/editor temporary files
+*.bak
+.*.tmp-*
+
+# Local secrets/env
+.env
+.env.*
+!.env.example
+
+# Local config
+# .glowed.json is project configuration and should be versioned.
+.glowed.local.json
+
+# Logs
+*.log
+
+# OS/editor
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
