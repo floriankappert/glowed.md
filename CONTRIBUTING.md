@@ -2,16 +2,19 @@
 
 Thanks for your interest in glowed.
 
-This repository is the maintainer's version of glowed. Contributions are welcome, and users are also welcome to maintain and distribute their own modified builds.
+This repository is the maintainer's version of glowed. The preferred model is that users freely maintain and use their own modified taps/builds, then share them through distribution registration if they want others to discover them.
 
 ## Contribution model
 
-- Pull requests, bug reports, tests, and compatibility notes are welcome.
-- Merge and release decisions for this repository are made by this repository's maintainer.
-- A change being useful in another distribution does not automatically mean it should be merged here.
+- External pull requests are not the default contribution path for this repository.
+- Bug reports, compatibility notes, release feedback, and distribution registrations are welcome as issues.
+- You are encouraged to customize glowed for your own workflow and distribute your own tap/build freely, as allowed by the project license.
+- If you publish a modified distribution, please consider opening a **Distribution registration** issue.
+- The maintainer may review registered distributions and, if desired, independently prepare and merge related changes into this repository.
+- A change being useful in another distribution does not automatically mean it will be merged here.
 - Terminal behavior is environment-sensitive, so please include your OS, terminal, shell, and architecture when reporting TUI issues.
 
-## Before opening a pull request
+## Before sharing a change or distribution
 
 Please run:
 
@@ -58,7 +61,7 @@ Recommended naming:
 
 ## Registering a public distribution
 
-If you publish a modified tap or build, please open a **Distribution registration** issue.
+If you publish a modified tap or build, please consider opening a **Distribution registration** issue.
 
 This is not an approval request. It is a lightweight way to share:
 

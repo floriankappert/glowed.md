@@ -221,10 +221,11 @@ editor는 backup + atomic save를 수행하지만 아직 초기 소프트웨어�
 - 같은 formula 이름 `glowed`는 서로 다른 tap에 동시에 존재할 수 있습니다.
 - 예를 들어 `khw1031/tap/glowed`와 `someone/tap/glowed`는 둘 다 배포 가능합니다.
 - 모호함을 피하려면 사용자는 `brew install someone/tap/glowed`처럼 full tap path로 설치하는 것이 좋습니다.
+- 자신의 workflow에 맞춘 tap/build를 자유롭게 유지하고 사용해도 됩니다.
 - 수정한 build는 drop-in 용도라면 binary를 `glowed`로 설치해도 되고, 여러 build와 공존해야 한다면 `glowed-<name>`으로 설치해도 됩니다.
-- Pull request는 환영하지만, 이 repository에 merge할지 여부는 이 repository maintainer가 결정합니다.
-- 수정한 tap이나 build를 공개한다면 **Distribution registration** issue를 열어 알려 주세요.
-- AI agent나 coding harness로 build를 수정했다면 어떤 agent/model/method를 사용했는지도 명시해 주세요.
+- 이 repository는 외부 pull request를 기본 contribution 경로로 받지 않습니다.
+- 자신의 버전을 공유하고 싶다면 **Distribution registration** issue로 알려 주세요. maintainer가 살펴본 뒤 필요하다고 판단하면 직접 PR/commit을 만들어 이 repository에 반영할 수 있습니다.
+- AI agent나 coding harness로 build를 수정했다면 어떤 agent/model/method를 사용했는지도 명시하는 것을 권장합니다.
 - 알려진 distribution은 [`DISTRIBUTIONS.md`](DISTRIBUTIONS.md)에 정리될 수 있습니다.
 
 Contribution, distribution registration, Homebrew tap 안내는 [`CONTRIBUTING.md`](CONTRIBUTING.md)를 참고하세요.

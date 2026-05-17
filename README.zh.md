@@ -221,10 +221,11 @@ editor 会执行 backup + atomic save，但它仍然是早期软件。重要文�
 - 相同的 formula 名称 `glowed` 可以存在于不同 tap 中。
 - 例如，`khw1031/tap/glowed` 和 `someone/tap/glowed` 都可以发布。
 - 为了避免歧义，用户最好使用 full tap path 安装，例如 `brew install someone/tap/glowed`。
+- 鼓励你根据自己的 workflow 自由维护和使用自己的 tap/build。
 - 修改版 build 如果用于 drop-in，可以把 binary 安装为 `glowed`；如果需要和其他 build 共存，也可以安装为 `glowed-<name>`。
-- 欢迎 pull request，但是否 merge 到本 repository 由本 repository 的 maintainer 决定。
-- 如果你公开发布修改后的 tap 或 build，请打开 **Distribution registration** issue 告知我们。
-- 如果你的 build 是用 AI agent 或 coding harness 修改的，也请说明使用了哪些 agent/model/method。
+- 本 repository 不把外部 pull request 作为默认 contribution path。
+- 如果你想分享自己的版本，请打开 **Distribution registration** issue 告知我们。maintainer 可能会查看，并在认为合适时自行准备 PR/commit 后合并到本 repository。
+- 如果你的 build 是用 AI agent 或 coding harness 修改的，建议说明使用了哪些 agent/model/method。
 - 已知 distribution 可能会列在 [`DISTRIBUTIONS.md`](DISTRIBUTIONS.md) 中。
 
 Contribution、distribution registration 和 Homebrew tap 指南见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

@@ -16,7 +16,7 @@ The goal is discovery, not ranking. Homebrew tap namespaces are the recommended 
 
 ## Add your distribution
 
-If you publish a modified tap or build, please open a **Distribution registration** issue first.
+If you publish a modified tap or build and want to share it with others, please consider opening a **Distribution registration** issue.
 
 Suggested entry format:
 
@@ -33,4 +33,4 @@ Suggested entry format:
 - Maintainer: `@yourname`
 ```
 
-A listed distribution is maintained by its own maintainer. Check that distribution's repository for its behavior, compatibility notes, release cadence, and support expectations.
+A listed distribution is maintained by its own maintainer. Check that distribution's repository for its behavior, compatibility notes, release cadence, and support expectations. The glowed maintainer may review registered distributions and independently port selected ideas or changes when desired.

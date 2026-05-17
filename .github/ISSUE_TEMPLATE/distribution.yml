@@ -10,6 +10,8 @@ body:
 
         This is not an approval request. It is a lightweight registry entry so users can discover which distribution exists, who maintains it, what changed, and how to install it.
 
+        You are free to maintain and use your own build. The maintainer may review registered distributions and, if desired, independently prepare and merge related changes into this repository.
+
   - type: input
     id: tap
     attributes:

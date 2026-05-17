@@ -227,10 +227,11 @@ Homebrew tap namespaces are the recommended way to distinguish modified builds.
 - The same formula name, `glowed`, can exist in different taps.
 - For example, `khw1031/tap/glowed` and `someone/tap/glowed` can both be distributed.
 - Users should install with the full tap path, such as `brew install someone/tap/glowed`, to avoid ambiguity.
+- You are encouraged to maintain and use your own tap/build freely for your workflow.
 - A modified build may install the binary as `glowed` for drop-in use, or as `glowed-<name>` if it should coexist with other builds.
-- Pull requests are welcome, but whether a change is merged into this repository is decided by this repository's maintainer.
-- If you publish a modified tap or build, please open a **Distribution registration** issue.
-- If your build was customized with an AI agent or coding harness, please state which agent/model/method you used.
+- This repository does not use external pull requests as the default contribution path.
+- If you want to share your version back, please open a **Distribution registration** issue. The maintainer may review it and, if desired, prepare and merge changes here independently.
+- If your build was customized with an AI agent or coding harness, it is recommended to state which agent/model/method you used.
 - Known distributions may be listed in [`DISTRIBUTIONS.md`](DISTRIBUTIONS.md).
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution, distribution registration, and Homebrew tap guidance.
