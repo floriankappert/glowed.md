@@ -115,6 +115,18 @@ Show help:
 glowed --help
 ```
 
+## Search
+
+Press `/` to focus search. Search tokens are split on whitespace and combined with AND semantics: `foo bar` matches documents that contain both `foo` and `bar`.
+
+Search covers:
+
+- relative path and filename
+- raw frontmatter text
+- tags collected from frontmatter `tag` / `tags` fields and inline `tag:foo` markers
+
+Use `tag:foo` to search tags specifically. The query syntax is `tag:foo`; `tags:foo` is not a query operator. For example, `notes tag:ai draft` matches documents whose path/frontmatter/search haystack includes `notes` and `draft`, and whose tags include `ai`.
+
 ## Default key bindings
 
 - `q`: quit

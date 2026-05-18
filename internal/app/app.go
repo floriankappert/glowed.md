@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -354,14 +355,45 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) {
 		m.Query = ""
 		m.applySearch(false)
 		return
+	case "ctrl+w", "alt+backspace":
+		m.Query = deletePreviousSearchWord(m.Query)
+		m.applySearch(false)
+		return
 	case "tab":
 		m.cycleFocus()
 		return
 	}
-	if msg.Type == tea.KeyRunes {
-		m.Query += string(msg.Runes)
+	if input, ok := searchInputFromKey(msg); ok {
+		m.Query += input
 		m.applySearch(false)
 	}
+}
+
+func searchInputFromKey(msg tea.KeyMsg) (string, bool) {
+	if msg.Type == tea.KeySpace {
+		return " ", true
+	}
+	if msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
+		return "", false
+	}
+	for _, r := range msg.Runes {
+		if unicode.IsControl(r) || !unicode.IsPrint(r) {
+			return "", false
+		}
+	}
+	return string(msg.Runes), true
+}
+
+func deletePreviousSearchWord(query string) string {
+	r := []rune(query)
+	i := len(r)
+	for i > 0 && unicode.IsSpace(r[i-1]) {
+		i--
+	}
+	for i > 0 && !unicode.IsSpace(r[i-1]) {
+		i--
+	}
+	return string(r[:i])
 }
 
 func (m *Model) handleChatKey(msg tea.KeyMsg) tea.Cmd {
@@ -521,7 +553,7 @@ func (m Model) dispatch(action string) (Model, tea.Cmd) {
 	case "search":
 		m.Focus = FocusSearch
 		m.Mode = ModePreview
-		m.setStatus("type to search filename/frontmatter/tag:", "info")
+		m.setStatus("search: foo bar=AND, tag:foo, path/frontmatter", "info")
 	case "edit":
 		m.enterEditMode()
 	case "sourceSelect":
@@ -1665,7 +1697,7 @@ func (m Model) renderSearch() string {
 	}
 	query := m.Query
 	if query == "" {
-		query = styleDim.Render("filename, frontmatter, tag:foo")
+		query = styleDim.Render("foo bar = AND; tag:foo; path/frontmatter")
 	}
 	right := styleDim.Render(fmt.Sprintf("%d/%d", len(m.Results), len(m.Docs)))
 	left := " " + prompt + " " + query

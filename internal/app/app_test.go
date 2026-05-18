@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/khw1031/glowed/internal/config"
 	"github.com/khw1031/glowed/internal/docs"
 	llmclient "github.com/khw1031/glowed/internal/llm"
@@ -248,6 +250,61 @@ func TestSidebarTabTogglesSelectedDirectory(t *testing.T) {
 	m.toggleSidebarDirectory()
 	if idx := m.findSidebarRow(sidebarRowDocument, "notes/a.md", -1); idx < 0 {
 		t.Fatalf("rows after tab toggle = %#v, want notes/a.md visible", m.SidebarRows)
+	}
+}
+
+func TestSearchInputSupportsSpaceKey(t *testing.T) {
+	m := Model{Docs: []docs.Document{{Rel: "foo bar.md", Name: "foo bar.md", Haystack: "foo bar.md"}}}
+	m.applySearch(false)
+
+	m.handleSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("foo")})
+	m.handleSearchKey(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")})
+	m.handleSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("bar")})
+
+	if m.Query != "foo bar" {
+		t.Fatalf("Query = %q, want foo bar", m.Query)
+	}
+	if len(m.Results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(m.Results))
+	}
+}
+
+func TestSearchInputIgnoresSpecialKeyRunes(t *testing.T) {
+	m := Model{}
+	m.handleSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("foo")})
+	m.handleSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\x1b', '[', 'D'}})
+	m.handleSearchKey(tea.KeyMsg{Type: tea.KeyUp})
+
+	if m.Query != "foo" {
+		t.Fatalf("Query = %q, want foo", m.Query)
+	}
+}
+
+func TestSearchInputDeletesPreviousWord(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: ""},
+		{name: "single word", input: "foo", want: ""},
+		{name: "single word trailing space", input: "foo ", want: ""},
+		{name: "two words", input: "foo bar", want: "foo "},
+		{name: "two words trailing spaces", input: "foo bar  ", want: "foo "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{Query: tc.input}
+			m.handleSearchKey(tea.KeyMsg{Type: tea.KeyCtrlW})
+			if m.Query != tc.want {
+				t.Fatalf("Query after ctrl+w = %q, want %q", m.Query, tc.want)
+			}
+		})
+	}
+
+	m := Model{Query: "foo "}
+	m.handleSearchKey(tea.KeyMsg{Type: tea.KeyBackspace, Alt: true})
+	if m.Query != "" {
+		t.Fatalf("Query after alt+backspace = %q, want empty", m.Query)
 	}
 }
 

@@ -109,6 +109,18 @@ glowed /path/to/project/notes/file.md
 glowed --help
 ```
 
+## 검색
+
+`/`를 눌러 검색에 focus합니다. 검색어는 공백 기준으로 token화되며 AND 조건으로 결합됩니다. 예를 들어 `foo bar`는 `foo`와 `bar`가 모두 포함된 문서만 찾습니다.
+
+검색 대상:
+
+- 상대 경로와 파일명
+- raw frontmatter text
+- frontmatter `tag` / `tags` field와 inline `tag:foo` marker에서 수집한 tag
+
+`tag:foo`는 tag 전용 검색입니다. 검색 구문은 `tag:foo`이며, `tags:foo`는 query operator가 아닙니다. 예를 들어 `notes tag:ai draft`는 경로/frontmatter/search haystack에 `notes`와 `draft`가 포함되고, tag에 `ai`가 포함된 문서를 찾습니다.
+
 ## 기본 키
 
 - `q`: 종료

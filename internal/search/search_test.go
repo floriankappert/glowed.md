@@ -19,6 +19,19 @@ func TestFilterTagAndHaystack(t *testing.T) {
 	}
 }
 
+func TestFilterUsesANDAcrossPathFrontmatterAndTags(t *testing.T) {
+	input := []docs.Document{
+		{Rel: "notes/ai.md", Name: "ai.md", Tags: []string{"ai"}, FrontmatterRaw: "title: Agent Notes", Haystack: "notes/ai.md\ntitle: agent notes\ntag:ai"},
+		{Rel: "notes/cooking.md", Name: "cooking.md", Tags: []string{"home"}, FrontmatterRaw: "title: Agent Recipes", Haystack: "notes/cooking.md\ntitle: agent recipes\ntag:home"},
+	}
+	if got := Filter(input, "notes tag:ai agent"); len(got) != 1 || got[0].Rel != "notes/ai.md" {
+		t.Fatalf("AND path/tag/frontmatter filter = %#v", got)
+	}
+	if got := Filter(input, "notes tag:missing agent"); len(got) != 0 {
+		t.Fatalf("missing tag AND filter = %#v, want empty", got)
+	}
+}
+
 func TestFilterClearsSnippetForEmptyQuery(t *testing.T) {
 	input := []docs.Document{{Rel: "README.md", Snippet: "stale"}}
 	got := Filter(input, "")
