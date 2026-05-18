@@ -24,8 +24,9 @@ glowed 目前实现为一个基于 Go 的终端应用。
 ## 功能
 
 - 扫描 project root 下的 `.md` 文件
-- 支持 project-local `.glowedignore` 扫描排除规则
-- 按文件名、frontmatter、`tag:` / `tags:` metadata 搜索
+- 运行时通过 polling 自动检测 Markdown 文件的创建、修改、删除和 rename
+- 对常见生成路径应用 built-in scan ignore，并可用 project-local `.glowedignore` override
+- 按标题、Markdown 正文、文件名/path、frontmatter、`tag:` / `tags:` metadata 搜索
 - 可展开/折叠的 sidebar 目录树
 - 基于 Glamour 的 Markdown preview
 - raw Markdown edit mode
@@ -108,6 +109,28 @@ glowed /path/to/project/notes/file.md
 glowed --help
 ```
 
+创建 project `.glowedignore` template：
+
+```bash
+glowed --init-ignore /path/to/project
+```
+
+## 搜索
+
+按 `/` 聚焦搜索。搜索词会按空白分成 token，并以 AND 语义组合。例如 `foo bar` 只匹配同时包含 `foo` 和 `bar` 的文档。
+
+搜索范围：
+
+- 从第一个 `# Heading` 或 frontmatter `title` 提取的文档标题
+- 去掉开头 frontmatter block 后的 Markdown 正文
+- relative path 和 filename
+- raw frontmatter text
+- 从 frontmatter `tag` / `tags` field 以及 inline `tag:foo` marker 收集的 tag
+
+普通搜索结果按 title、body、frontmatter、path/filename、tag 的顺序排序。sidebar snippet 会显示 match source，例如 `title:`、`body:`、`frontmatter:`、`path:` 或 `tag:foo`。
+
+`tag:foo` 是 tag 专用搜索。query operator 是 `tag:foo`，不是 `tags:foo`。例如 `notes tag:ai draft` 会查找 title/body/path/frontmatter 中包含 `notes` 和 `draft`，且 tag 中包含 `ai` 的文档。
+
 ## 默认按键
 
 - `q`: 退出
@@ -121,7 +144,7 @@ glowed --help
 - `ctrl+z`: edit mode 中 undo
 - `ctrl+y`: edit mode 中 redo
 - `esc`: 根据 context 取消搜索/编辑/source mode
-- `r`: 重新扫描 project root
+- `r`: 手动重新扫描 project root；运行中的 Markdown 变更也会通过 polling refresh 自动更新
 - `ctrl+g b`: toggle sidebar
 - `ctrl+g l`: 打开 external LLM session
 - `ctrl+g r`: 重新扫描
@@ -136,7 +159,11 @@ glowed --help
 
 project-local 配置会覆盖 global 配置。
 
-Markdown 扫描排除规则只读取 `<project-root>/.glowedignore`。语法为 gitignore 风格。只排除根目录 `build` 请使用 `/build/`，排除所有名为 `build` 的目录请使用 `build/`。
+Markdown 扫描排除规则会结合 built-in defaults 和 `<project-root>/.glowedignore` 中的 project-local override。built-in defaults 会隐藏常见的 VCS、dependency、cache 和 root generated-output 路径，例如 `.git/`、`node_modules/`、`vendor/`、`.cache/`、`/build/`、`/dist/`。语法为 gitignore 风格。只排除根目录 `build` 请使用 `/build/`，排除所有名为 `build` 的目录请使用 `build/`。`.glowedignore` 规则会在 built-in defaults 之后应用，因此可以用 `!pattern` 重新包含被默认规则隐藏的路径。`.gitignore` 会被有意忽略。
+
+可以用 `glowed --init-ignore [project-root]` 创建 starter `.glowedignore` template。它不会覆盖已有文件。
+
+运行时会使用 lightweight polling snapshot 检测 note 相关文件变更。默认 polling 间隔为 5 秒；当 Markdown 文件的 path/size/modtime snapshot 或 `.glowedignore` fingerprint 发生变化时，glowed 会重新扫描 project。需要立即刷新时仍可使用手动 refresh 键 (`r`)。
 
 参考：
 

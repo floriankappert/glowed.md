@@ -1,5 +1,9 @@
-# glowed Markdown scan ignore rules
-# Patterns use gitignore-style syntax and are only used by glowed.
+# glowed project-local Markdown scan ignore rules
+#
+# glowed already applies built-in defaults for common VCS, dependency,
+# cache, and generated-output paths. Rules in this file are applied after
+# those defaults, so use !pattern to re-include paths hidden by defaults.
+# .gitignore is intentionally not read by glowed.
 
 # Project-local task notes
 .TODO.md

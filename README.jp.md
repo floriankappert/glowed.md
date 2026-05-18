@@ -24,8 +24,9 @@ glowed は現在、Go ベースのターミナルアプリケーションとし�
 ## 機能
 
 - project root 配下の `.md` ファイルをスキャン
-- project-local `.glowedignore` の scan 除外ルールを反映
-- ファイル名、frontmatter、`tag:` / `tags:` metadata による検索
+- 実行中に polling で Markdown ファイルの作成/変更/削除/rename を自動検出して更新
+- 一般的な生成パスは built-in scan ignore で除外し、project-local `.glowedignore` で override
+- タイトル、Markdown 本文、ファイル名/path、frontmatter、`tag:` / `tags:` metadata による検索
 - 展開/折りたたみ可能な sidebar ディレクトリツリー
 - Glamour ベースの Markdown preview
 - raw Markdown edit mode
@@ -108,6 +109,28 @@ glowed /path/to/project/notes/file.md
 glowed --help
 ```
 
+project `.glowedignore` template を作成:
+
+```bash
+glowed --init-ignore /path/to/project
+```
+
+## 検索
+
+`/` を押すと検索に focus します。検索語は空白で token 化され、AND 条件として扱われます。たとえば `foo bar` は `foo` と `bar` の両方を含むドキュメントに一致します。
+
+検索対象:
+
+- 最初の `# Heading`、または frontmatter `title` から取得したドキュメントタイトル
+- 先頭の frontmatter block を除いた Markdown 本文
+- relative path と filename
+- raw frontmatter text
+- frontmatter `tag` / `tags` field と inline `tag:foo` marker から収集した tag
+
+通常の検索結果は title、body、frontmatter、path/filename、tag の順に優先されます。sidebar snippet には `title:`, `body:`, `frontmatter:`, `path:`, `tag:foo` のように match source が表示されます。
+
+`tag:foo` は tag 専用検索です。query operator は `tag:foo` であり、`tags:foo` ではありません。たとえば `notes tag:ai draft` は title/body/path/frontmatter に `notes` と `draft` が含まれ、tag に `ai` が含まれるドキュメントを探します。
+
 ## デフォルトキー
 
 - `q`: 終了
@@ -121,7 +144,7 @@ glowed --help
 - `ctrl+z`: edit mode で undo
 - `ctrl+y`: edit mode で redo
 - `esc`: context に応じて検索/編集/source mode をキャンセル
-- `r`: project root を再スキャン
+- `r`: project root を手動で再スキャン。実行中の Markdown 変更は polling refresh でも自動更新
 - `ctrl+g b`: sidebar toggle
 - `ctrl+g l`: external LLM session を開く
 - `ctrl+g r`: 再スキャン
@@ -136,7 +159,11 @@ glowed --help
 
 project-local の設定が global 設定を上書きします。
 
-Markdown scan の除外ルールは `<project-root>/.glowedignore` のみを参照します。文法は gitignore スタイルです。root の `build` だけを除外するには `/build/`、名前が `build` の全ディレクトリを除外するには `build/` を使います。
+Markdown scan の除外ルールは built-in defaults と `<project-root>/.glowedignore` の project-local override を組み合わせて使います。built-in defaults は `.git/`, `node_modules/`, `vendor/`, `.cache/`, `/build/`, `/dist/` など、一般的な VCS、dependency、cache、root generated-output path を隠します。文法は gitignore スタイルです。root の `build` だけを除外するには `/build/`、名前が `build` の全ディレクトリを除外するには `build/` を使います。`.glowedignore` のルールは built-in defaults の後に適用されるため、`!pattern` で default ignore を再度含めることができます。`.gitignore` は意図的に読みません。
+
+`glowed --init-ignore [project-root]` で starter `.glowedignore` template を作成できます。既存ファイルは上書きしません。
+
+実行中は lightweight polling snapshot で note 関連のファイル変更を検出します。デフォルトの polling 間隔は 5 秒です。Markdown ファイルの path/size/modtime snapshot、または `.glowedignore` fingerprint が変わると project を再スキャンします。すぐに反映したい場合は手動 refresh キー (`r`) を使えます。
 
 参照:
 

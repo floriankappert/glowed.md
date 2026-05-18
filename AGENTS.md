@@ -59,7 +59,7 @@
 - **Editing** — `internal/editor` handles raw Markdown save/backup logic and selection slicing helpers.
 - **Configuration** — `internal/config` loads defaults, global config from `~/.config/glowed/config.json`, and project config from `<project-root>/.glowed.json`.
 - **LLM and Clipboard** — `internal/llm` builds context/launch requests for external LLM CLIs; `internal/clipboard` handles clipboard integration.
-- **Ignore Rules** — Markdown scan ignore rules come only from `<project-root>/.glowedignore`; `.gitignore` is intentionally not used by the scanner.
+- **Ignore Rules** — Markdown scan ignores combine built-in defaults with `<project-root>/.glowedignore` overrides; `.gitignore` is intentionally not used by the scanner.
 
 ## Build, Test, and Deployment
 

@@ -1,12 +1,12 @@
 package app
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -254,7 +254,7 @@ func TestSidebarTabTogglesSelectedDirectory(t *testing.T) {
 }
 
 func TestSearchInputSupportsSpaceKey(t *testing.T) {
-	m := Model{Docs: []docs.Document{{Rel: "foo bar.md", Name: "foo bar.md", Haystack: "foo bar.md"}}}
+	m := Model{Docs: []docs.Document{{Rel: "foo bar.md", Name: "foo bar.md"}}}
 	m.applySearch(false)
 
 	m.handleSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("foo")})
@@ -305,6 +305,26 @@ func TestSearchInputDeletesPreviousWord(t *testing.T) {
 	m.handleSearchKey(tea.KeyMsg{Type: tea.KeyBackspace, Alt: true})
 	if m.Query != "" {
 		t.Fatalf("Query after alt+backspace = %q, want empty", m.Query)
+	}
+}
+
+func TestRenderSearchShowsCursorWhenFocused(t *testing.T) {
+	cursor := styleReverse.Render(" ")
+	m := Model{Width: 80, Focus: FocusSearch, Query: "agent"}
+	line := m.renderSearch()
+
+	if !strings.Contains(line, "agent"+cursor) {
+		t.Fatalf("focused search line %q does not show cursor after query", line)
+	}
+}
+
+func TestRenderSearchShowsCursorBeforePlaceholderWhenEmptyFocused(t *testing.T) {
+	cursor := styleReverse.Render(" ")
+	m := Model{Width: 80, Focus: FocusSearch}
+	line := m.renderSearch()
+
+	if !strings.Contains(line, cursor+" ") || !strings.Contains(stripANSI(line), "foo bar = AND") {
+		t.Fatalf("empty focused search line %q does not show cursor before placeholder", line)
 	}
 }
 
@@ -482,119 +502,47 @@ func TestWatchDebounceIgnoresStaleGeneration(t *testing.T) {
 	}
 }
 
-type fakeNoteWatcher struct {
-	events chan filewatch.Event
-	errors chan error
-	closed int
-}
-
-func newFakeNoteWatcher() *fakeNoteWatcher {
-	return &fakeNoteWatcher{events: make(chan filewatch.Event), errors: make(chan error)}
-}
-
-func (w *fakeNoteWatcher) Events() <-chan filewatch.Event { return w.events }
-func (w *fakeNoteWatcher) Errors() <-chan error           { return w.errors }
-func (w *fakeNoteWatcher) Close() error {
-	w.closed++
-	return nil
-}
-
-func TestWatchStartedClosesPreviousWatcher(t *testing.T) {
-	oldWatcher := newFakeNoteWatcher()
-	newWatcher := newFakeNoteWatcher()
-	m := Model{Watcher: oldWatcher}
-
-	m, _ = m.handleWatchStarted(watchStartedMsg{Watcher: newWatcher, Fingerprint: "new"})
-
-	if oldWatcher.closed != 1 {
-		t.Fatalf("old watcher closed %d time(s), want 1", oldWatcher.closed)
+func TestWatchRescanDebounceKeepsSinglePendingTimer(t *testing.T) {
+	m := Model{}
+	first := m.queueWatchRescan(filewatch.Event{Rel: "first.md"})
+	if first == nil {
+		t.Fatal("first debounce command is nil")
 	}
-	if m.Watcher != newWatcher {
-		t.Fatalf("Watcher = %#v, want new watcher", m.Watcher)
+	second := m.queueWatchRescan(filewatch.Event{Rel: "second.md"})
+	if second != nil {
+		t.Fatal("second debounce command should be coalesced while timer is pending")
 	}
-	if m.WatchPolling {
-		t.Fatal("WatchPolling = true, want false")
+	if m.WatchDebounceGen != 2 || m.WatchLastEvent.Rel != "second.md" {
+		t.Fatalf("debounce state = gen %d event %#v, want latest event", m.WatchDebounceGen, m.WatchLastEvent)
+	}
+
+	m, rescheduled := m.handleWatchDebounced(watchDebouncedMsg{Generation: 1})
+	if rescheduled == nil {
+		t.Fatal("stale debounce did not schedule a replacement timer")
+	}
+	if !m.WatchDebouncePending {
+		t.Fatal("WatchDebouncePending = false after rescheduling stale debounce")
 	}
 }
 
-func TestWatchStartFailedClosesPreviousWatcher(t *testing.T) {
-	oldWatcher := newFakeNoteWatcher()
-	m := Model{Watcher: oldWatcher}
-
-	m, _ = m.handleWatchStartFailed(watchStartFailedMsg{Err: errors.New("boom"), Fingerprint: "fp"})
-
-	if oldWatcher.closed != 1 {
-		t.Fatalf("old watcher closed %d time(s), want 1", oldWatcher.closed)
-	}
-	if m.Watcher != nil {
-		t.Fatalf("Watcher = %#v, want nil", m.Watcher)
-	}
-	if !m.WatchPolling {
-		t.Fatal("WatchPolling = false, want true")
-	}
-}
-
-func TestWatchDebouncedRestartsWatcherAfterIgnoreChange(t *testing.T) {
+func TestNewEnablesPollingRefresh(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "doc.md")
-	if err := os.WriteFile(path, []byte("# Doc"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "doc.md"), []byte("# Doc"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	watcher := newFakeNoteWatcher()
+
 	m := New(root)
-	m.Watcher = watcher
-	m.WatchDebounceGen = 1
-	m.WatchRestartPending = true
-	m.WatchLastEvent = filewatch.Event{Path: filepath.Join(root, ".glowedignore"), Rel: ".glowedignore", Reason: "WRITE", IgnoreChanged: true}
 
-	m, cmd := m.handleWatchDebounced(watchDebouncedMsg{Generation: 1})
-
-	if watcher.closed != 1 {
-		t.Fatalf("watcher closed %d time(s), want 1", watcher.closed)
+	if m.WatchFingerprint == "" {
+		t.Fatal("WatchFingerprint is empty")
 	}
-	if m.Watcher != nil {
-		t.Fatalf("Watcher = %#v, want nil while restart command is pending", m.Watcher)
-	}
-	if !m.WatchRescanAfterStart {
-		t.Fatal("WatchRescanAfterStart = false, want true")
-	}
-	if cmd == nil {
-		t.Fatal("restart command is nil")
-	}
-}
-
-func TestWatchStartedRescansAfterRestart(t *testing.T) {
-	root := t.TempDir()
-	ignorePath := filepath.Join(root, ".glowedignore")
-	docPath := filepath.Join(root, "hidden.md")
-	if err := os.WriteFile(ignorePath, []byte("hidden.md\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(docPath, []byte("# Hidden"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	m := New(root)
-	if len(m.Results) != 0 {
-		t.Fatalf("initial results len = %d, want 0", len(m.Results))
-	}
-	if err := os.WriteFile(ignorePath, []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-	watcher := newFakeNoteWatcher()
-	m.WatchRescanAfterStart = true
-
-	m, _ = m.handleWatchStarted(watchStartedMsg{Watcher: watcher, Fingerprint: "fp", IgnoreFingerprint: "ignore-fp"})
-
-	if m.WatchRescanAfterStart {
-		t.Fatal("WatchRescanAfterStart = true, want false")
-	}
-	if len(m.Results) != 1 || m.Results[0].Rel != "hidden.md" {
-		t.Fatalf("results after watcher restart = %#v, want hidden.md", m.Results)
+	if !strings.Contains(m.Status, "polling refresh every 5s") {
+		t.Fatalf("Status = %q, want polling refresh notice", m.Status)
 	}
 }
 
 func TestPollTickQueuesRescanAndMarksIgnoreChange(t *testing.T) {
-	m := Model{WatchPolling: true, WatchFingerprint: "old", WatchIgnoreFingerprint: "ignore-old"}
+	m := Model{Root: t.TempDir(), WatchFingerprint: "old", WatchIgnoreFingerprint: "ignore-old"}
 
 	m, cmd := m.handlePollTick(pollTickMsg{Fingerprint: "new", IgnoreFingerprint: "ignore-new"})
 
@@ -609,29 +557,58 @@ func TestPollTickQueuesRescanAndMarksIgnoreChange(t *testing.T) {
 	}
 }
 
-func TestPollTickIgnoredWhenNotPolling(t *testing.T) {
-	m := Model{WatchPolling: false, WatchFingerprint: "old", WatchIgnoreFingerprint: "ignore-old"}
-
-	m, cmd := m.handlePollTick(pollTickMsg{Fingerprint: "new", IgnoreFingerprint: "ignore-new"})
-
-	if cmd != nil {
-		t.Fatalf("cmd = %#v, want nil", cmd)
+func TestPollTickMarksDirtyEditorExternalChange(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "doc.md")
+	if err := os.WriteFile(path, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
 	}
-	if m.WatchFingerprint != "old" || m.WatchIgnoreFingerprint != "ignore-old" {
-		t.Fatalf("poll tick mutated non-polling model: fingerprint=%q ignore=%q", m.WatchFingerprint, m.WatchIgnoreFingerprint)
+	m := New(root)
+	m.enterEditMode()
+	m.Editor.CX = lineLen(m.Editor.Lines[0])
+	m.editorInsert(" local")
+
+	if err := os.WriteFile(path, []byte("external longer"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = m.handlePollTick(pollTickMsg{Fingerprint: "new", IgnoreFingerprint: m.WatchIgnoreFingerprint})
+
+	if !m.Editor.ExternalChanged {
+		t.Fatal("Editor.ExternalChanged = false, want true after polling detects current editor file change")
+	}
+	if got := strings.Join(m.Editor.Lines, "\n"); got != "original local" {
+		t.Fatalf("editor buffer after poll = %q, want original local", got)
 	}
 }
 
-func TestPollTickPeriodicallyRetriesNativeWatcher(t *testing.T) {
-	m := Model{Root: t.TempDir(), WatchPolling: true, WatchPollTicks: watchPollRetryTicks - 1, WatchFingerprint: "same", WatchIgnoreFingerprint: "same-ignore"}
-
-	m, cmd := m.handlePollTick(pollTickMsg{Fingerprint: "same", IgnoreFingerprint: "same-ignore"})
-
-	if cmd == nil {
-		t.Fatal("retry command is nil")
+func TestPollTickMarksSameSizeSameModTimeEditorChange(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "doc.md")
+	fixed := time.Unix(1700000000, 0)
+	if err := os.WriteFile(path, []byte("alpha"), 0644); err != nil {
+		t.Fatal(err)
 	}
-	if m.WatchPollTicks != 0 {
-		t.Fatalf("WatchPollTicks = %d, want 0 after retry", m.WatchPollTicks)
+	if err := os.Chtimes(path, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+	m.enterEditMode()
+	m.editorInsert(" local")
+
+	if err := os.WriteFile(path, []byte("bravo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := filewatch.Fingerprint(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ = m.handlePollTick(pollTickMsg{Fingerprint: fingerprint, IgnoreFingerprint: m.WatchIgnoreFingerprint})
+
+	if !m.Editor.ExternalChanged {
+		t.Fatal("Editor.ExternalChanged = false, want true for same-size same-mtime content change")
 	}
 }
 

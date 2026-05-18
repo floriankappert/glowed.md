@@ -30,9 +30,9 @@ The current implementation was produced with Codex GPT-5.5, a local `TODO.md` pl
 ## Features
 
 - Scan `.md` files under the project root
-- Automatically refresh when Markdown files are created, modified, deleted, or renamed while glowed is running
-- Respect project-local `.glowedignore` scan rules
-- Search by filename, frontmatter, and `tag:` / `tags:` metadata
+- Automatically refresh by polling for Markdown files created, modified, deleted, or renamed while glowed is running
+- Apply built-in scan ignores for common generated paths, with project-local `.glowedignore` overrides
+- Search by title, Markdown body, filename/path, frontmatter, and `tag:` / `tags:` metadata
 - Sidebar directory tree with expandable/collapsible folders
 - Glamour-based Markdown preview
 - Raw Markdown edit mode
@@ -115,17 +115,27 @@ Show help:
 glowed --help
 ```
 
+Create a project `.glowedignore` template for custom scan rules:
+
+```bash
+glowed --init-ignore /path/to/project
+```
+
 ## Search
 
 Press `/` to focus search. Search tokens are split on whitespace and combined with AND semantics: `foo bar` matches documents that contain both `foo` and `bar`.
 
 Search covers:
 
+- document title, from the first `# Heading` or frontmatter `title`
+- Markdown body text, excluding the leading frontmatter block
 - relative path and filename
 - raw frontmatter text
 - tags collected from frontmatter `tag` / `tags` fields and inline `tag:foo` markers
 
-Use `tag:foo` to search tags specifically. The query syntax is `tag:foo`; `tags:foo` is not a query operator. For example, `notes tag:ai draft` matches documents whose path/frontmatter/search haystack includes `notes` and `draft`, and whose tags include `ai`.
+General query matches are ranked by source: title, body, frontmatter, path/filename, then tag. The sidebar snippet shows the match source, such as `title:`, `body:`, `frontmatter:`, `path:`, or `tag:foo`.
+
+Use `tag:foo` to search tags specifically. The query syntax is `tag:foo`; `tags:foo` is not a query operator. For example, `notes tag:ai draft` matches documents whose title/body/path/frontmatter includes `notes` and `draft`, and whose tags include `ai`.
 
 ## Default key bindings
 
@@ -140,7 +150,7 @@ Use `tag:foo` to search tags specifically. The query syntax is `tag:foo`; `tags:
 - `ctrl+z`: undo in edit mode
 - `ctrl+y`: redo in edit mode
 - `esc`: cancel search/edit/source mode depending on context
-- `r`: rescan project root manually; automatic file watching also refreshes Markdown changes while glowed is running
+- `r`: rescan project root manually; automatic polling refresh also reflects Markdown changes while glowed is running
 - `ctrl+g b`: toggle sidebar
 - `ctrl+g l`: open external LLM session
 - `ctrl+g r`: rescan
@@ -155,9 +165,11 @@ Configuration is loaded from:
 
 Project-local config overrides global config.
 
-Markdown scan ignore rules are loaded only from `<project-root>/.glowedignore`. The syntax is gitignore-style; use `/build/` for the root build directory only, or `build/` for every directory named `build`.
+Markdown scan ignore rules combine built-in defaults with optional project-local overrides from `<project-root>/.glowedignore`. Built-in defaults hide common VCS, dependency, cache, and root generated-output paths such as `.git/`, `node_modules/`, `vendor/`, `.cache/`, `/build/`, and `/dist/`. The syntax is gitignore-style; use `/build/` for the root build directory only, or `build/` for every directory named `build`. Rules in `.glowedignore` are applied after built-in defaults, so `!pattern` can re-include paths hidden by defaults. `.gitignore` is intentionally not read.
 
-While glowed is running, it watches note-relevant filesystem changes with `fsnotify` and debounces rescans. If native file watching is unavailable, it falls back to periodic polling. The manual refresh key (`r`) remains available.
+Use `glowed --init-ignore [project-root]` to create a starter `.glowedignore` template. It never overwrites an existing file.
+
+While glowed is running, it uses a lightweight polling snapshot to detect note-relevant filesystem changes. The default polling interval is 5 seconds; when the Markdown path/size/modtime snapshot or `.glowedignore` fingerprint changes, glowed rescans the project. The manual refresh key (`r`) remains available for immediate refresh.
 
 See:
 

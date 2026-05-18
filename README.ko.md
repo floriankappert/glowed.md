@@ -24,9 +24,9 @@ glowed는 현재 Go 기반 터미널 애플리케이션으로 구현되어 있�
 ## 기능
 
 - project root 아래 `.md` 파일 스캔
-- 실행 중 Markdown 파일 생성/수정/삭제/rename을 자동 감지해 갱신
-- project-local `.glowedignore` 스캔 제외 규칙 반영
-- 파일명, frontmatter, `tag:` / `tags:` metadata 검색
+- 실행 중 polling으로 Markdown 파일 생성/수정/삭제/rename을 자동 감지해 갱신
+- 일반적인 생성 경로는 built-in scan ignore로 제외하고 project-local `.glowedignore`로 override
+- 제목, Markdown 본문, 파일명/경로, frontmatter, `tag:` / `tags:` metadata 검색
 - 펼침/접힘 가능한 sidebar 디렉터리 트리
 - Glamour 기반 Markdown preview
 - raw Markdown edit mode
@@ -109,17 +109,27 @@ glowed /path/to/project/notes/file.md
 glowed --help
 ```
 
+project `.glowedignore` template 생성:
+
+```bash
+glowed --init-ignore /path/to/project
+```
+
 ## 검색
 
 `/`를 눌러 검색에 focus합니다. 검색어는 공백 기준으로 token화되며 AND 조건으로 결합됩니다. 예를 들어 `foo bar`는 `foo`와 `bar`가 모두 포함된 문서만 찾습니다.
 
 검색 대상:
 
+- 첫 `# Heading` 또는 frontmatter `title`에서 추출한 문서 제목
+- 시작 frontmatter block을 제외한 Markdown 본문
 - 상대 경로와 파일명
 - raw frontmatter text
 - frontmatter `tag` / `tags` field와 inline `tag:foo` marker에서 수집한 tag
 
-`tag:foo`는 tag 전용 검색입니다. 검색 구문은 `tag:foo`이며, `tags:foo`는 query operator가 아닙니다. 예를 들어 `notes tag:ai draft`는 경로/frontmatter/search haystack에 `notes`와 `draft`가 포함되고, tag에 `ai`가 포함된 문서를 찾습니다.
+일반 검색 결과는 제목, 본문, frontmatter, 경로/파일명, tag 순서로 우선순위를 둡니다. sidebar snippet에는 `title:`, `body:`, `frontmatter:`, `path:`, `tag:foo`처럼 match source가 표시됩니다.
+
+`tag:foo`는 tag 전용 검색입니다. 검색 구문은 `tag:foo`이며, `tags:foo`는 query operator가 아닙니다. 예를 들어 `notes tag:ai draft`는 제목/본문/경로/frontmatter에 `notes`와 `draft`가 포함되고, tag에 `ai`가 포함된 문서를 찾습니다.
 
 ## 기본 키
 
@@ -134,7 +144,7 @@ glowed --help
 - `ctrl+z`: edit mode undo
 - `ctrl+y`: edit mode redo
 - `esc`: context에 따라 검색/편집/source mode 취소
-- `r`: project root 수동 재스캔; 실행 중 Markdown 변경은 file watching으로도 자동 갱신
+- `r`: project root 수동 재스캔; 실행 중 Markdown 변경은 polling refresh로도 자동 갱신
 - `ctrl+g b`: sidebar toggle
 - `ctrl+g l`: external LLM session 열기
 - `ctrl+g r`: 재스캔
@@ -149,9 +159,11 @@ glowed --help
 
 project-local 설정이 global 설정을 덮어씁니다.
 
-Markdown 스캔 제외 규칙은 `<project-root>/.glowedignore`만 참조합니다. 문법은 gitignore 스타일입니다. 루트 `build`만 제외하려면 `/build/`, 이름이 `build`인 모든 디렉터리를 제외하려면 `build/`를 사용합니다.
+Markdown 스캔 제외 규칙은 built-in default와 `<project-root>/.glowedignore`의 project-local override를 함께 사용합니다. built-in default는 `.git/`, `node_modules/`, `vendor/`, `.cache/`, `/build/`, `/dist/` 같은 일반적인 VCS, dependency, cache, root 생성 산출물 경로를 숨깁니다. 문법은 gitignore 스타일입니다. 루트 `build`만 제외하려면 `/build/`, 이름이 `build`인 모든 디렉터리를 제외하려면 `build/`를 사용합니다. `.glowedignore` 규칙은 built-in default 뒤에 적용되므로 `!pattern`으로 default ignore를 다시 포함할 수 있습니다. `.gitignore`는 의도적으로 읽지 않습니다.
 
-실행 중에는 `fsnotify`로 note 관련 파일 변경을 감시하고 debounce 후 재스캔합니다. native file watching을 사용할 수 없으면 주기적 polling fallback을 사용합니다. 수동 refresh 키(`r`)도 계속 사용할 수 있습니다.
+`glowed --init-ignore [project-root]`로 starter `.glowedignore` template을 생성할 수 있습니다. 기존 파일은 덮어쓰지 않습니다.
+
+실행 중에는 lightweight polling snapshot으로 note 관련 파일 변경을 감지합니다. 기본 polling 간격은 5초이며, Markdown 파일의 path/size/modtime snapshot 또는 `.glowedignore` fingerprint가 바뀌면 project를 재스캔합니다. 즉시 반영이 필요하면 수동 refresh 키(`r`)를 사용할 수 있습니다.
 
 참고:
 

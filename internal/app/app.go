@@ -56,6 +56,7 @@ type editorState struct {
 	Dirty           bool
 	ExternalChanged bool
 	File            string
+	FileFingerprint string
 	Undo            []editorSnapshot
 	Redo            []editorSnapshot
 }
@@ -144,15 +145,11 @@ type Model struct {
 	StatusKind    string
 	FooterButtons []footerButton
 
-	Watcher                noteWatcher
-	WatchPolling           bool
-	WatchPollTicks         int
 	WatchFingerprint       string
 	WatchIgnoreFingerprint string
 	WatchDebounceGen       int
+	WatchDebouncePending   bool
 	WatchLastEvent         filewatch.Event
-	WatchRestartPending    bool
-	WatchRescanAfterStart  bool
 }
 
 var (
@@ -196,6 +193,7 @@ func NewWithInitial(root string, initialPath string) Model {
 		m.setStatus(cfgErrs[0].Error(), "warn")
 	}
 	m.scan("ready")
+	m.initializePollingRefresh()
 	if initialPath != "" {
 		m.selectInitialDocument(initialPath)
 	}
@@ -203,7 +201,7 @@ func NewWithInitial(root string, initialPath string) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return startWatcherCmd(m.Root)
+	return pollTickCmd(m.Root)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -228,18 +226,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmLaunchResultMsg:
 		m.handleLLMLaunchResult(msg)
 		return m, nil
-	case watchStartedMsg:
-		return m.handleWatchStarted(msg)
-	case watchStartFailedMsg:
-		return m.handleWatchStartFailed(msg)
-	case watchFileChangedMsg:
-		return m.handleWatchFileChanged(msg)
 	case watchDebouncedMsg:
 		return m.handleWatchDebounced(msg)
-	case watchErrorMsg:
-		return m.handleWatchError(msg)
-	case watchClosedMsg:
-		return m.handleWatchClosed(msg)
 	case pollTickMsg:
 		return m.handlePollTick(msg)
 	}
@@ -553,7 +541,7 @@ func (m Model) dispatch(action string) (Model, tea.Cmd) {
 	case "search":
 		m.Focus = FocusSearch
 		m.Mode = ModePreview
-		m.setStatus("search: foo bar=AND, tag:foo, path/frontmatter", "info")
+		m.setStatus("search: foo bar=AND, tag:foo, title/body/path", "info")
 	case "edit":
 		m.enterEditMode()
 	case "sourceSelect":
@@ -847,7 +835,8 @@ func (m *Model) enterEditMode() {
 		m.setStatus("open failed: "+err.Error(), "error")
 		return
 	}
-	m.Editor = editorState{Lines: splitEditorLines(string(raw)), File: path}
+	fingerprint, _ := filewatch.ContentFingerprint(path)
+	m.Editor = editorState{Lines: splitEditorLines(string(raw)), File: path, FileFingerprint: fingerprint}
 	m.clearEditorSelection()
 	m.Mode = ModeEdit
 	m.Focus = FocusEditor
@@ -870,6 +859,7 @@ func (m *Model) saveEditor() {
 		return
 	}
 	m.Editor.File = file
+	m.Editor.FileFingerprint, _ = filewatch.ContentFingerprint(file)
 	m.Editor.Dirty = false
 	m.Editor.ExternalChanged = false
 	m.clearEditorSelection()
@@ -904,7 +894,8 @@ func (m *Model) enterSourceMode() {
 		m.setStatus("source open failed: "+err.Error(), "error")
 		return
 	}
-	m.Editor = editorState{Lines: splitEditorLines(string(raw)), File: path}
+	fingerprint, _ := filewatch.ContentFingerprint(path)
+	m.Editor = editorState{Lines: splitEditorLines(string(raw)), File: path, FileFingerprint: fingerprint}
 	m.clearEditorSelection()
 	m.Mode = ModeSource
 	m.Focus = FocusPreview
@@ -1695,13 +1686,25 @@ func (m Model) renderSearch() string {
 	if m.Focus == FocusSearch {
 		prompt = styleReverse.Render("/")
 	}
-	query := m.Query
-	if query == "" {
-		query = styleDim.Render("foo bar = AND; tag:foo; path/frontmatter")
-	}
+	query := renderSearchQuery(m.Query, m.Focus == FocusSearch)
 	right := styleDim.Render(fmt.Sprintf("%d/%d", len(m.Results), len(m.Docs)))
 	left := " " + prompt + " " + query
 	return fitANSI(left, max(1, m.Width-xansi.StringWidth(right))) + right
+}
+
+func renderSearchQuery(query string, focused bool) string {
+	const placeholder = "foo bar = AND; tag:foo; title/body/path"
+	if !focused {
+		if query == "" {
+			return styleDim.Render(placeholder)
+		}
+		return query
+	}
+	cursor := styleReverse.Render(" ")
+	if query == "" {
+		return cursor + " " + styleDim.Render(placeholder)
+	}
+	return query + cursor
 }
 
 func (m Model) renderSeparator() string {

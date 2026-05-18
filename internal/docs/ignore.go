@@ -21,6 +21,7 @@ type ignorePattern struct {
 	DirOnly  bool
 	Anchored bool
 	HasSlash bool
+	Source   string
 }
 
 func LoadIgnoreMatcher(root string) IgnoreMatcher {
@@ -28,22 +29,49 @@ func LoadIgnoreMatcher(root string) IgnoreMatcher {
 }
 
 func (m IgnoreMatcher) Ignored(rel string, isDir bool) bool {
-	return m.rules.ignored(rel, isDir)
+	ignored, _ := m.IgnoreReason(rel, isDir)
+	return ignored
+}
+
+func (m IgnoreMatcher) IgnoreReason(rel string, isDir bool) (bool, string) {
+	return m.rules.ignoredReason(rel, isDir)
+}
+
+func DefaultGlowedIgnoreTemplate() string {
+	return defaultGlowedIgnoreTemplate
+}
+
+func InitGlowedIgnore(root string) (string, error) {
+	path := filepath.Join(root, ".glowedignore")
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return path, err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.WriteString(DefaultGlowedIgnoreTemplate())
+	return path, err
 }
 
 func loadGlowedIgnore(root string) ignoreRules {
+	patterns := make([]ignorePattern, 0, len(defaultIgnorePatterns)+16)
+	patterns = appendParsedIgnorePatterns(patterns, defaultIgnorePatterns, IgnoreReasonDefault)
 	b, err := os.ReadFile(filepath.Join(root, ".glowedignore"))
 	if err != nil {
-		return ignoreRules{}
+		return ignoreRules{patterns: patterns}
 	}
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
-	patterns := make([]ignorePattern, 0, len(lines))
+	patterns = appendParsedIgnorePatterns(patterns, lines, IgnoreReasonProject)
+	return ignoreRules{patterns: patterns}
+}
+
+func appendParsedIgnorePatterns(patterns []ignorePattern, lines []string, source string) []ignorePattern {
 	for _, line := range lines {
 		if p, ok := parseIgnorePattern(line); ok {
+			p.Source = source
 			patterns = append(patterns, p)
 		}
 	}
-	return ignoreRules{patterns: patterns}
+	return patterns
 }
 
 func parseIgnorePattern(line string) (ignorePattern, bool) {
@@ -78,17 +106,28 @@ func parseIgnorePattern(line string) (ignorePattern, bool) {
 }
 
 func (g ignoreRules) ignored(rel string, isDir bool) bool {
+	ignored, _ := g.ignoredReason(rel, isDir)
+	return ignored
+}
+
+func (g ignoreRules) ignoredReason(rel string, isDir bool) (bool, string) {
 	rel = cleanSlashRel(rel)
 	if rel == "." || rel == "" {
-		return false
+		return false, ""
 	}
 	ignored := false
+	reason := ""
 	for _, p := range g.patterns {
 		if p.matches(rel, isDir) {
 			ignored = !p.Negated
+			if ignored {
+				reason = p.Source
+			} else {
+				reason = ""
+			}
 		}
 	}
-	return ignored
+	return ignored, reason
 }
 
 func (p ignorePattern) matches(rel string, isDir bool) bool {

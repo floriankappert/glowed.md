@@ -19,7 +19,8 @@ type Document struct {
 	Frontmatter    map[string]any
 	FrontmatterRaw string
 	Tags           []string
-	Haystack       string
+	Title          string
+	Body           string
 	Snippet        string
 }
 
@@ -65,15 +66,15 @@ func ScanWithReport(root string, maxFileBytes int64) ([]Document, ScanReport, er
 			rel = name
 		}
 		if entry.IsDir() {
-			if p != root && ignore.ignored(rel, true) {
-				report.Excluded = append(report.Excluded, ExcludedPath{Rel: cleanSlashRel(rel), IsDir: true, Reason: ".glowedignore"})
+			if ignored, reason := ignore.ignoredReason(rel, true); p != root && ignored {
+				report.Excluded = append(report.Excluded, ExcludedPath{Rel: cleanSlashRel(rel), IsDir: true, Reason: reason})
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if ignore.ignored(rel, false) {
+		if ignored, reason := ignore.ignoredReason(rel, false); ignored {
 			if strings.ToLower(filepath.Ext(name)) == ".md" {
-				report.Excluded = append(report.Excluded, ExcludedPath{Rel: cleanSlashRel(rel), Reason: ".glowedignore"})
+				report.Excluded = append(report.Excluded, ExcludedPath{Rel: cleanSlashRel(rel), Reason: reason})
 			}
 			return nil
 		}
@@ -91,7 +92,10 @@ func ScanWithReport(root string, maxFileBytes int64) ([]Document, ScanReport, er
 		}
 
 		raw, _ := os.ReadFile(p)
-		meta := ParseMeta(string(raw))
+		rawText := string(raw)
+		meta := ParseMeta(rawText)
+		title := ExtractTitle(rawText, meta)
+		body := ExtractBody(rawText)
 		out = append(out, Document{
 			Abs:            p,
 			Rel:            rel,
@@ -99,7 +103,8 @@ func ScanWithReport(root string, maxFileBytes int64) ([]Document, ScanReport, er
 			Frontmatter:    meta.Frontmatter,
 			FrontmatterRaw: meta.FrontmatterRaw,
 			Tags:           meta.Tags,
-			Haystack:       buildHaystack(rel, meta),
+			Title:          title,
+			Body:           body,
 		})
 		return nil
 	})
@@ -262,10 +267,76 @@ func tagsFromValue(v any) []string {
 	return out
 }
 
-func buildHaystack(rel string, meta Meta) string {
-	parts := []string{rel, filepath.Base(rel), meta.FrontmatterRaw}
-	for _, tag := range meta.Tags {
-		parts = append(parts, "tag:"+tag)
+func ExtractTitle(raw string, meta Meta) string {
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	inFrontmatter := len(lines) > 0 && strings.TrimSpace(lines[0]) == "---"
+	inFence := false
+	fenceMarker := ""
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if inFrontmatter {
+			if i > 0 && trimmed == "---" {
+				inFrontmatter = false
+			}
+			continue
+		}
+		// Title extraction intentionally supports ATX H1 headings only. Indented
+		// code blocks and fenced code blocks are skipped; Setext headings are not
+		// treated as titles in this MVP implementation.
+		if isIndentedCodeLine(line) {
+			continue
+		}
+		if marker, ok := fenceStart(trimmed); ok {
+			if inFence && marker == fenceMarker {
+				inFence = false
+				fenceMarker = ""
+			} else if !inFence {
+				inFence = true
+				fenceMarker = marker
+			}
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "# ") {
+			return cleanHeadingText(strings.TrimSpace(strings.TrimPrefix(trimmed, "# ")))
+		}
 	}
-	return strings.ToLower(strings.Join(parts, "\n"))
+	if title, ok := meta.Frontmatter["title"]; ok {
+		return strings.TrimSpace(fmt.Sprint(title))
+	}
+	return ""
+}
+
+func fenceStart(trimmed string) (string, bool) {
+	if strings.HasPrefix(trimmed, "```") {
+		return "```", true
+	}
+	if strings.HasPrefix(trimmed, "~~~") {
+		return "~~~", true
+	}
+	return "", false
+}
+
+func isIndentedCodeLine(line string) bool {
+	return strings.HasPrefix(line, "\t") || strings.HasPrefix(line, "    ")
+}
+
+func cleanHeadingText(s string) string {
+	return strings.TrimSpace(strings.TrimRight(strings.TrimSpace(s), "#"))
+}
+
+func ExtractBody(raw string) string {
+	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return normalized
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			return strings.Join(lines[i+1:], "\n")
+		}
+	}
+	return normalized
 }

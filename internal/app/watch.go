@@ -14,80 +14,18 @@ import (
 )
 
 const (
-	watchDebounceDelay  = 350 * time.Millisecond
-	watchPollInterval   = 2 * time.Second
-	watchPollRetryTicks = 30
+	watchDebounceDelay = 750 * time.Millisecond
+	watchPollInterval  = 5 * time.Second
 )
-
-type noteWatcher interface {
-	Events() <-chan filewatch.Event
-	Errors() <-chan error
-	Close() error
-}
-
-type watchStartedMsg struct {
-	Watcher           noteWatcher
-	Fingerprint       string
-	IgnoreFingerprint string
-}
-
-type watchStartFailedMsg struct {
-	Err               error
-	Fingerprint       string
-	IgnoreFingerprint string
-}
-
-type watchFileChangedMsg struct {
-	Watcher noteWatcher
-	Event   filewatch.Event
-}
 
 type watchDebouncedMsg struct {
 	Generation int
-}
-
-type watchErrorMsg struct {
-	Watcher noteWatcher
-	Err     error
-}
-
-type watchClosedMsg struct {
-	Watcher noteWatcher
 }
 
 type pollTickMsg struct {
 	Fingerprint       string
 	IgnoreFingerprint string
 	Err               error
-}
-
-func startWatcherCmd(root string) tea.Cmd {
-	return func() tea.Msg {
-		fingerprint, _ := filewatch.Fingerprint(root)
-		ignoreFingerprint, _ := filewatch.IgnoreFingerprint(root)
-		watcher, err := filewatch.New(root)
-		if err != nil {
-			return watchStartFailedMsg{Err: err, Fingerprint: fingerprint, IgnoreFingerprint: ignoreFingerprint}
-		}
-		return watchStartedMsg{Watcher: watcher, Fingerprint: fingerprint, IgnoreFingerprint: ignoreFingerprint}
-	}
-}
-
-func waitWatcherCmd(watcher noteWatcher) tea.Cmd {
-	return func() tea.Msg {
-		select {
-		case event, ok := <-watcher.Events():
-			if !ok {
-				return watchClosedMsg{Watcher: watcher}
-			}
-			return watchFileChangedMsg{Watcher: watcher, Event: event}
-		case err, ok := <-watcher.Errors():
-			if !ok {
-				return watchClosedMsg{Watcher: watcher}
-			}
-			return watchErrorMsg{Watcher: watcher, Err: err}
-		}
-	}
 }
 
 func pollTickCmd(root string) tea.Cmd {
@@ -101,53 +39,21 @@ func pollTickCmd(root string) tea.Cmd {
 	})
 }
 
-func (m Model) handleWatchStarted(msg watchStartedMsg) (Model, tea.Cmd) {
-	if m.Watcher != nil && m.Watcher != msg.Watcher {
-		_ = m.Watcher.Close()
-	}
-	m.Watcher = msg.Watcher
-	m.WatchPolling = false
-	m.WatchPollTicks = 0
-	m.WatchFingerprint = msg.Fingerprint
-	m.WatchIgnoreFingerprint = msg.IgnoreFingerprint
-	if m.WatchRescanAfterStart {
-		m.WatchRescanAfterStart = false
-		m.rescanAfterExternalChange(filewatch.Event{Rel: ".glowedignore", Reason: "watch-restart", IgnoreChanged: true})
-	}
-	return m, waitWatcherCmd(msg.Watcher)
-}
-
-func (m Model) handleWatchStartFailed(msg watchStartFailedMsg) (Model, tea.Cmd) {
-	if m.Watcher != nil {
-		_ = m.Watcher.Close()
-	}
-	m.Watcher = nil
-	m.WatchPolling = true
-	m.WatchPollTicks = 0
-	m.WatchFingerprint = msg.Fingerprint
-	m.WatchIgnoreFingerprint = msg.IgnoreFingerprint
-	m.WatchRescanAfterStart = false
-	m.setStatus("file watcher unavailable; using polling fallback: "+msg.Err.Error(), "warn")
-	return m, pollTickCmd(m.Root)
-}
-
-func (m Model) handleWatchFileChanged(msg watchFileChangedMsg) (Model, tea.Cmd) {
-	if msg.Watcher != m.Watcher {
-		return m, nil
-	}
-	return m, tea.Batch(waitWatcherCmd(msg.Watcher), m.queueWatchRescan(msg.Event))
-}
-
 func (m *Model) queueWatchRescan(event filewatch.Event) tea.Cmd {
 	m.WatchDebounceGen++
 	m.WatchLastEvent = event
-	if event.IgnoreChanged {
-		m.WatchRestartPending = true
-	}
 	if m.Mode == ModeEdit && m.editorFileAffected(event) {
 		m.Editor.ExternalChanged = true
 		m.setStatus("external change detected for editing file; editor buffer was not reloaded", "warn")
 	}
+	if m.WatchDebouncePending {
+		return nil
+	}
+	return m.startWatchDebounceTimer()
+}
+
+func (m *Model) startWatchDebounceTimer() tea.Cmd {
+	m.WatchDebouncePending = true
 	generation := m.WatchDebounceGen
 	return tea.Tick(watchDebounceDelay, func(time.Time) tea.Msg {
 		return watchDebouncedMsg{Generation: generation}
@@ -155,57 +61,40 @@ func (m *Model) queueWatchRescan(event filewatch.Event) tea.Cmd {
 }
 
 func (m Model) handleWatchDebounced(msg watchDebouncedMsg) (Model, tea.Cmd) {
+	m.WatchDebouncePending = false
 	if msg.Generation != m.WatchDebounceGen {
-		return m, nil
+		// A newer polling change arrived while this timer was pending. Start one
+		// replacement debounce window from now so bursts coalesce into one rescan.
+		return m, m.startWatchDebounceTimer()
 	}
-	restart := m.WatchRestartPending
-	m.WatchRestartPending = false
 	m.rescanAfterExternalChange(m.WatchLastEvent)
-	if restart && !m.WatchPolling {
-		if m.Watcher != nil {
-			_ = m.Watcher.Close()
-			m.Watcher = nil
-		}
-		m.WatchRescanAfterStart = true
-		return m, startWatcherCmd(m.Root)
-	}
 	return m, nil
 }
 
-func (m Model) handleWatchError(msg watchErrorMsg) (Model, tea.Cmd) {
-	if msg.Watcher != m.Watcher {
-		return m, nil
+func (m *Model) initializePollingRefresh() {
+	fingerprint, err := filewatch.Fingerprint(m.Root)
+	ignoreFingerprint, ignoreErr := filewatch.IgnoreFingerprint(m.Root)
+	if err == nil {
+		err = ignoreErr
 	}
-	m.setStatus("file watcher warning: "+msg.Err.Error(), "warn")
-	return m, waitWatcherCmd(msg.Watcher)
-}
-
-func (m Model) handleWatchClosed(msg watchClosedMsg) (Model, tea.Cmd) {
-	if msg.Watcher != m.Watcher {
-		return m, nil
+	if err != nil {
+		m.setStatus("polling refresh baseline failed: "+err.Error(), "warn")
+		return
 	}
-	m.Watcher = nil
-	m.WatchPolling = true
-	m.WatchPollTicks = 0
-	m.setStatus("file watcher stopped; using polling fallback", "warn")
-	return m, pollTickCmd(m.Root)
+	m.WatchFingerprint = fingerprint
+	m.WatchIgnoreFingerprint = ignoreFingerprint
+	notice := fmt.Sprintf("polling refresh every %s", watchPollInterval)
+	if m.Status == "" {
+		m.setStatus(notice, "info")
+	} else if m.StatusKind != "error" && !strings.Contains(m.Status, notice) {
+		m.setStatus(fmt.Sprintf("%s; %s", m.Status, notice), m.StatusKind)
+	}
 }
 
 func (m Model) handlePollTick(msg pollTickMsg) (Model, tea.Cmd) {
-	if !m.WatchPolling {
-		return m, nil
-	}
-	m.WatchPollTicks++
-	retryWatcher := m.WatchPollTicks >= watchPollRetryTicks
-	if retryWatcher {
-		m.WatchPollTicks = 0
-	}
 	nextCmd := pollTickCmd(m.Root)
-	if retryWatcher {
-		nextCmd = startWatcherCmd(m.Root)
-	}
 	if msg.Err != nil {
-		m.setStatus("polling failed: "+msg.Err.Error(), "warn")
+		m.setStatus("polling refresh failed: "+msg.Err.Error(), "warn")
 		return m, nextCmd
 	}
 	if m.WatchFingerprint == "" {
@@ -213,14 +102,37 @@ func (m Model) handlePollTick(msg pollTickMsg) (Model, tea.Cmd) {
 		m.WatchIgnoreFingerprint = msg.IgnoreFingerprint
 		return m, nextCmd
 	}
-	if msg.Fingerprint != m.WatchFingerprint || msg.IgnoreFingerprint != m.WatchIgnoreFingerprint {
+	editorChanged, editorFingerprint := m.pollingEditorFileChanged()
+	if msg.Fingerprint != m.WatchFingerprint || msg.IgnoreFingerprint != m.WatchIgnoreFingerprint || editorChanged {
 		ignoreChanged := msg.IgnoreFingerprint != m.WatchIgnoreFingerprint
+		event := filewatch.Event{Reason: "poll", IgnoreChanged: ignoreChanged}
+		if editorChanged {
+			event.Path = m.Editor.File
+			m.Editor.FileFingerprint = editorFingerprint
+			if rel, err := filepath.Rel(m.Root, m.Editor.File); err == nil {
+				event.Rel = filepath.ToSlash(rel)
+			}
+		}
 		m.WatchFingerprint = msg.Fingerprint
 		m.WatchIgnoreFingerprint = msg.IgnoreFingerprint
-		cmd := m.queueWatchRescan(filewatch.Event{Reason: "poll", IgnoreChanged: ignoreChanged})
+		cmd := m.queueWatchRescan(event)
+		if cmd == nil {
+			return m, nextCmd
+		}
 		return m, tea.Batch(cmd, nextCmd)
 	}
 	return m, nextCmd
+}
+
+func (m Model) pollingEditorFileChanged() (bool, string) {
+	if (m.Mode != ModeEdit && m.Mode != ModeSource) || m.Editor.File == "" || m.Editor.FileFingerprint == "" {
+		return false, ""
+	}
+	fingerprint, err := filewatch.ContentFingerprint(m.Editor.File)
+	if err != nil {
+		return true, ""
+	}
+	return fingerprint != m.Editor.FileFingerprint, fingerprint
 }
 
 func (m *Model) rescanAfterExternalChange(event filewatch.Event) {
@@ -285,6 +197,7 @@ func (m *Model) reloadSourceBuffer() error {
 		m.Editor.Lines = []string{""}
 	}
 	m.Editor.File = path
+	m.Editor.FileFingerprint, _ = filewatch.ContentFingerprint(path)
 	m.Editor.CY = clamp(m.Editor.CY, 0, len(m.Editor.Lines)-1)
 	m.Editor.CX = clamp(m.Editor.CX, 0, lineLen(m.Editor.Lines[m.Editor.CY]))
 	m.Editor.ScrollY = clamp(m.Editor.ScrollY, 0, max(0, len(m.Editor.Lines)-m.editorTextHeight()))
@@ -382,9 +295,4 @@ func (m Model) Shutdown() {
 	m.shutdown()
 }
 
-func (m *Model) shutdown() {
-	if m.Watcher != nil {
-		_ = m.Watcher.Close()
-		m.Watcher = nil
-	}
-}
+func (m *Model) shutdown() {}

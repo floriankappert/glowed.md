@@ -7,27 +7,6 @@ import (
 	"time"
 )
 
-func TestRemoveKnownDirRemovesDescendants(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "tmp", "root")
-	removed := filepath.Join(root, "notes")
-	w := &Watcher{watchedDirs: map[string]bool{
-		root:                            true,
-		removed:                         true,
-		filepath.Join(removed, "child"): true,
-		filepath.Join(removed, "child", "nested"): true,
-		filepath.Join(root, "other"):              true,
-	}}
-
-	w.removeKnownDir(removed)
-
-	if w.watchedDirs[removed] || w.watchedDirs[filepath.Join(removed, "child")] || w.watchedDirs[filepath.Join(removed, "child", "nested")] {
-		t.Fatalf("removed directory descendants still tracked: %#v", w.watchedDirs)
-	}
-	if !w.watchedDirs[root] || !w.watchedDirs[filepath.Join(root, "other")] {
-		t.Fatalf("unrelated watched directories were removed: %#v", w.watchedDirs)
-	}
-}
-
 func TestIgnoreFingerprintChangesForIgnoreFileWrites(t *testing.T) {
 	root := t.TempDir()
 	before, err := IgnoreFingerprint(root)
@@ -58,6 +37,107 @@ func TestIgnoreFingerprintChangesForIgnoreFileWrites(t *testing.T) {
 	if afterWrite == afterCreate {
 		t.Fatal("ignore fingerprint did not change after writing .glowedignore")
 	}
+	fixed := time.Unix(1700000000, 0)
+	if err := os.WriteFile(ignorePath, []byte("same-a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(ignorePath, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	sameSizeBefore, err := IgnoreFingerprint(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ignorePath, []byte("same-b\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(ignorePath, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	sameSizeAfter, err := IgnoreFingerprint(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameSizeBefore == sameSizeAfter {
+		t.Fatal("ignore fingerprint did not change for same-size same-mtime content write")
+	}
+}
+
+func TestFileFingerprintChangesForMarkdownWrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "doc.md")
+	if err := os.WriteFile(path, []byte("one"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := FileFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("two longer"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	after, err := FileFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("file fingerprint did not change after markdown write")
+	}
+}
+
+func TestFileFingerprintIgnoresSameSizeSameModTimeContentChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "doc.md")
+	fixed := time.Unix(1700000000, 0)
+	if err := os.WriteFile(path, []byte("alpha"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	before, err := FileFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("bravo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	after, err := FileFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Fatal("lightweight file fingerprint changed for same-size same-mtime content-only write")
+	}
+}
+
+func TestContentFingerprintChangesForSameSizeSameModTimeContentChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "doc.md")
+	fixed := time.Unix(1700000000, 0)
+	if err := os.WriteFile(path, []byte("alpha"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	before, err := ContentFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("bravo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	after, err := ContentFingerprint(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("content fingerprint did not change for same-size same-mtime content write")
+	}
 }
 
 func TestFingerprintChangesForMarkdownWrites(t *testing.T) {
@@ -70,7 +150,7 @@ func TestFingerprintChangesForMarkdownWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("two longer"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	after, err := Fingerprint(root)
@@ -82,32 +162,28 @@ func TestFingerprintChangesForMarkdownWrites(t *testing.T) {
 	}
 }
 
-func TestFingerprintChangesForSameSizeSameModTimeWrites(t *testing.T) {
+func TestFingerprintRespectsBuiltInDefaultIgnores(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "doc.md")
-	fixed := time.Unix(1700000000, 0)
-	if err := os.WriteFile(path, []byte("alpha"), 0644); err != nil {
+	ignored := filepath.Join(root, ".git", "hidden.md")
+	if err := os.MkdirAll(filepath.Dir(ignored), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chtimes(path, fixed, fixed); err != nil {
+	if err := os.WriteFile(ignored, []byte("one"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	before, err := Fingerprint(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("bravo"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(path, fixed, fixed); err != nil {
+	if err := os.WriteFile(ignored, []byte("two longer"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	after, err := Fingerprint(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before == after {
-		t.Fatal("fingerprint did not change for same-size same-mtime markdown write")
+	if before != after {
+		t.Fatal("fingerprint changed for built-in ignored markdown write")
 	}
 }
 
@@ -125,7 +201,7 @@ func TestFingerprintRespectsGlowedIgnoreAndIgnoreFileChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(ignored, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(ignored, []byte("two longer"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	afterIgnoredWrite, err := Fingerprint(root)
@@ -143,6 +219,6 @@ func TestFingerprintRespectsGlowedIgnoreAndIgnoreFileChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	if before == afterIgnoreChange {
-		t.Fatal("fingerprint did not change after .glowedignore change")
+		t.Fatal("fingerprint did not change after .glowedignore made markdown visible")
 	}
 }

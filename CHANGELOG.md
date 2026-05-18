@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2 - 2026-05-18
+
+### Added
+
+- Added built-in default Markdown scan ignores for common VCS, dependency, cache, and generated-output paths.
+- Added `.glowedignore` negation overrides so projects can re-include paths hidden by built-in defaults.
+- Added `glowed --init-ignore [project-root]` to create a starter `.glowedignore` template without overwriting existing files.
+
+### Changed
+
+- Switched automatic live refresh to a consistent lightweight polling model with a 5 second interval.
+- Removed the default native watcher/fsnotify runtime path; polling snapshot refresh is now the single automatic refresh model.
+- Polling fingerprints now use Markdown path/size/modtime plus `.glowedignore` fingerprints to avoid reading file contents on every tick.
+- Active edit/source buffers now use content fingerprints for external-change detection while project-wide polling remains lightweight.
+- Search now includes Markdown body text and ranks general matches by title, body, frontmatter, path/filename, then tag.
+
+### Fixed
+
+- Search focus now shows an explicit cursor so typed query text is easier to distinguish.
+- Search result snippets now show their match source, such as `title:`, `body:`, `frontmatter:`, `path:`, or `tag:foo`.
+- Title extraction now skips fenced and indented code blocks when choosing the first Markdown H1.
+- Filesystem refresh debounce is coalesced so repeated polling changes do not create unbounded debounce timers.
+
+### Breaking Changes
+
+- Markdown files under built-in ignored paths such as `.git/`, `node_modules/`, `vendor/`, root `/build/`, and root `/dist/` are now hidden by default. Add `!pattern` rules to `.glowedignore` to re-include paths that should be visible.
+- Automatic refresh now reflects changes after the polling interval rather than through native filesystem events. Use `r` for immediate manual refresh when needed.
+
+### Documentation
+
+- Updated English, Korean, Japanese, and Chinese READMEs for polling refresh, body search, built-in ignore defaults, and `--init-ignore`.
+
+### Internal
+
+- Removed the `fsnotify` dependency.
+- Removed the old `Document.Haystack` search cache and switched search tests to source-aware fields.
+
+
 ## v0.2.1 - 2026-05-18
 
 ### Added

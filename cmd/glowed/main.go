@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/khw1031/glowed/internal/app"
+	"github.com/khw1031/glowed/internal/docs"
 )
 
 var version = "dev"
@@ -23,12 +24,14 @@ func main() {
 		return
 	}
 	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help") {
-		fmt.Println("glowed - Ghostty terminal Markdown browser/editor")
-		fmt.Println()
-		fmt.Println("Usage:")
-		fmt.Println("  glowed [project-root]")
-		fmt.Println("  glowed [project-root] [initial-markdown-file]")
-		fmt.Println("  glowed [initial-markdown-file]")
+		printHelp()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--init-ignore" {
+		if err := initIgnore(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -52,6 +55,39 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Print("\x1b[0 q")
+}
+
+func printHelp() {
+	fmt.Println("glowed - Ghostty terminal Markdown browser/editor")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Println("  glowed [project-root]")
+	fmt.Println("  glowed [project-root] [initial-markdown-file]")
+	fmt.Println("  glowed [initial-markdown-file]")
+	fmt.Println("  glowed --init-ignore [project-root]")
+}
+
+func initIgnore(args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("glowed: --init-ignore accepts at most one project root")
+	}
+	root := "."
+	if len(args) == 1 {
+		root = args[0]
+	}
+	absRoot, err := absDir(root)
+	if err != nil {
+		return err
+	}
+	path, err := docs.InitGlowedIgnore(absRoot)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("glowed: .glowedignore already exists: %s", path)
+		}
+		return fmt.Errorf("glowed: create .glowedignore: %w", err)
+	}
+	fmt.Println("created " + path)
+	return nil
 }
 
 func resolveArgs(args []string) (root string, initial string, err error) {

@@ -1,6 +1,11 @@
 package docs
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestParseMetaTags(t *testing.T) {
 	raw := "---\ntitle: Hello\ntags: [ai, robot]\n---\n\nbody tag:note"
@@ -77,5 +82,87 @@ func TestParseMetaFallbackForInvalidYAML(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing fallback tags: %#v from %#v", want, meta.Tags)
+	}
+}
+
+func TestExtractTitlePrefersFirstH1Heading(t *testing.T) {
+	raw := "---\ntitle: Frontmatter Title\n---\n\n## Not title\n\n# Body Title\n\nBody"
+	meta := ParseMeta(raw)
+	if got := ExtractTitle(raw, meta); got != "Body Title" {
+		t.Fatalf("ExtractTitle() = %q, want Body Title", got)
+	}
+}
+
+func TestExtractTitleFallsBackToFrontmatterTitle(t *testing.T) {
+	raw := "---\ntitle: Frontmatter Title\n---\n\nNo h1"
+	meta := ParseMeta(raw)
+	if got := ExtractTitle(raw, meta); got != "Frontmatter Title" {
+		t.Fatalf("ExtractTitle() = %q, want Frontmatter Title", got)
+	}
+}
+
+func TestExtractTitleSkipsFencedCodeBlocks(t *testing.T) {
+	raw := "---\ntitle: Frontmatter Title\n---\n\n```go\n# Fake Code Title\n```\n\nNo h1"
+	meta := ParseMeta(raw)
+	if got := ExtractTitle(raw, meta); got != "Frontmatter Title" {
+		t.Fatalf("ExtractTitle() = %q, want Frontmatter Title", got)
+	}
+}
+
+func TestExtractTitleFindsHeadingAfterFencedCodeBlock(t *testing.T) {
+	raw := "```\n# Fake Code Title\n```\n\n# Real Title\n"
+	meta := ParseMeta(raw)
+	if got := ExtractTitle(raw, meta); got != "Real Title" {
+		t.Fatalf("ExtractTitle() = %q, want Real Title", got)
+	}
+}
+
+func TestExtractTitleSkipsIndentedCodeBlocks(t *testing.T) {
+	raw := "---\ntitle: Frontmatter Title\n---\n\n    # Fake Indented Code Title\n\t# Fake Tab Code Title\n"
+	meta := ParseMeta(raw)
+	if got := ExtractTitle(raw, meta); got != "Frontmatter Title" {
+		t.Fatalf("ExtractTitle() = %q, want Frontmatter Title", got)
+	}
+}
+
+func TestExtractTitleDoesNotUseSetextHeading(t *testing.T) {
+	raw := "---\ntitle: Frontmatter Title\n---\n\nSetext Title\n============\n"
+	meta := ParseMeta(raw)
+	if got := ExtractTitle(raw, meta); got != "Frontmatter Title" {
+		t.Fatalf("ExtractTitle() = %q, want Frontmatter Title because Setext H1 is unsupported", got)
+	}
+}
+
+func TestExtractBodyRemovesLeadingFrontmatterOnly(t *testing.T) {
+	raw := "---\ntitle: Hidden\n---\n\n# Visible\n\nBody text\n\n```\ncode search term\n```"
+	body := ExtractBody(raw)
+	if strings.Contains(body, "title: Hidden") {
+		t.Fatalf("ExtractBody() included frontmatter: %q", body)
+	}
+	if !strings.Contains(body, "# Visible") || !strings.Contains(body, "code search term") {
+		t.Fatalf("ExtractBody() = %q, want markdown body including code block", body)
+	}
+}
+
+func TestScanWithReportPopulatesTitleAndBody(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "doc.md")
+	raw := "---\ntitle: Frontmatter Title\ntags: [ai]\n---\n\n# Heading Title\n\nBody needle"
+	if err := os.WriteFile(path, []byte(raw), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := ScanWithReport(root, 1024*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("docs len = %d, want 1", len(got))
+	}
+	if got[0].Title != "Heading Title" {
+		t.Fatalf("Title = %q, want Heading Title", got[0].Title)
+	}
+	if !strings.Contains(got[0].Body, "Body needle") || strings.Contains(got[0].Body, "Frontmatter Title") {
+		t.Fatalf("Body = %q, want body without frontmatter", got[0].Body)
 	}
 }

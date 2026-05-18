@@ -15,7 +15,7 @@ func TestCLIHelpSmoke(t *testing.T) {
 		t.Fatalf("go run . --help failed: %v\n%s", err, out)
 	}
 	text := string(out)
-	for _, want := range []string{"glowed - Ghostty terminal Markdown browser/editor", "Usage:", "glowed [project-root]"} {
+	for _, want := range []string{"glowed - Ghostty terminal Markdown browser/editor", "Usage:", "glowed [project-root]", "glowed --init-ignore [project-root]"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("help output missing %q:\n%s", want, text)
 		}
@@ -30,6 +30,43 @@ func TestCLIVersionSmoke(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "glowed dev") {
 		t.Fatalf("version output missing expected value:\n%s", out)
+	}
+}
+
+func TestCLIInitIgnoreCreatesTemplate(t *testing.T) {
+	root := t.TempDir()
+	cmd := exec.Command("go", "run", ".", "--init-ignore", root)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run . --init-ignore failed: %v\n%s", err, out)
+	}
+	path := filepath.Join(root, ".glowedignore")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "created "+path) || !strings.Contains(string(b), "built-in default ignores") {
+		t.Fatalf("init-ignore output/template unexpected\nout=%s\ntemplate=%s", out, b)
+	}
+
+	cmd = exec.Command("go", "run", ".", "--init-ignore", root)
+	out, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("second go run . --init-ignore succeeded unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(string(out), ".glowedignore already exists") {
+		t.Fatalf("second init-ignore output missing exists error:\n%s", out)
+	}
+}
+
+func TestCLIBareInitIgnoreIsNotAccepted(t *testing.T) {
+	cmd := exec.Command("go", "run", ".", "init-ignore")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("go run . init-ignore succeeded unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(string(out), "neither a directory nor markdown file") {
+		t.Fatalf("bare init-ignore output missing path error:\n%s", out)
 	}
 }
 
