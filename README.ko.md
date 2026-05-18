@@ -24,9 +24,9 @@ glowed는 현재 Go 기반 터미널 애플리케이션으로 구현되어 있�
 ## 기능
 
 - project root 아래 `.md` 파일 스캔
-- 일반적인 ignore directory와 기본 `.gitignore` 규칙 반영
+- project-local `.glowedignore` 스캔 제외 규칙 반영
 - 파일명, frontmatter, `tag:` / `tags:` metadata 검색
-- sidebar 문서 목록
+- 펼침/접힘 가능한 sidebar 디렉터리 트리
 - Glamour 기반 Markdown preview
 - raw Markdown edit mode
 - backup을 동반한 atomic save
@@ -112,8 +112,8 @@ glowed --help
 
 - `q`: 종료
 - `/`: 검색 focus
-- `tab`: focus 순환
-- `enter`: 선택 문서 열기 / preview focus
+- `tab`: focus 순환; sidebar 디렉터리가 선택된 경우 펼침/접힘
+- `enter`: 선택 문서 열기 / preview focus; sidebar 디렉터리가 선택된 경우 펼침/접힘
 - `e`: 현재 문서 편집
 - `v`: source selection mode
 - `c`: external LLM session 열기
@@ -136,10 +136,13 @@ glowed --help
 
 project-local 설정이 global 설정을 덮어씁니다.
 
+Markdown 스캔 제외 규칙은 `<project-root>/.glowedignore`만 참조합니다. 문법은 gitignore 스타일입니다. 루트 `build`만 제외하려면 `/build/`, 이름이 `build`인 모든 디렉터리를 제외하려면 `build/`를 사용합니다.
+
 참고:
 
 - [`glowed.schema.json`](glowed.schema.json)
 - [`.glowed.example.json`](.glowed.example.json)
+- [`.glowedignore`](.glowedignore)
 
 ## External LLM session
 

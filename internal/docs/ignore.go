@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-type gitIgnore struct {
+type ignoreRules struct {
 	patterns []ignorePattern
 }
 
@@ -19,10 +19,10 @@ type ignorePattern struct {
 	HasSlash bool
 }
 
-func loadGitIgnore(root string) gitIgnore {
-	b, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+func loadGlowedIgnore(root string) ignoreRules {
+	b, err := os.ReadFile(filepath.Join(root, ".glowedignore"))
 	if err != nil {
-		return gitIgnore{}
+		return ignoreRules{}
 	}
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 	patterns := make([]ignorePattern, 0, len(lines))
@@ -31,7 +31,7 @@ func loadGitIgnore(root string) gitIgnore {
 			patterns = append(patterns, p)
 		}
 	}
-	return gitIgnore{patterns: patterns}
+	return ignoreRules{patterns: patterns}
 }
 
 func parseIgnorePattern(line string) (ignorePattern, bool) {
@@ -65,7 +65,7 @@ func parseIgnorePattern(line string) (ignorePattern, bool) {
 	return p, true
 }
 
-func (g gitIgnore) ignored(rel string, isDir bool) bool {
+func (g ignoreRules) ignored(rel string, isDir bool) bool {
 	rel = cleanSlashRel(rel)
 	if rel == "." || rel == "" {
 		return false

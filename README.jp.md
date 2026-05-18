@@ -24,9 +24,9 @@ glowed は現在、Go ベースのターミナルアプリケーションとし�
 ## 機能
 
 - project root 配下の `.md` ファイルをスキャン
-- よく使われる ignore directory と基本的な `.gitignore` ルールを反映
+- project-local `.glowedignore` の scan 除外ルールを反映
 - ファイル名、frontmatter、`tag:` / `tags:` metadata による検索
-- sidebar のドキュメント一覧
+- 展開/折りたたみ可能な sidebar ディレクトリツリー
 - Glamour ベースの Markdown preview
 - raw Markdown edit mode
 - backup 付き atomic save
@@ -112,8 +112,8 @@ glowed --help
 
 - `q`: 終了
 - `/`: 検索に focus
-- `tab`: focus を循環
-- `enter`: 選択中のドキュメントを開く / preview に focus
+- `tab`: focus を循環。sidebar のディレクトリ選択中は展開/折りたたみ
+- `enter`: 選択中のドキュメントを開く / preview に focus。sidebar のディレクトリ選択中は展開/折りたたみ
 - `e`: 現在のドキュメントを編集
 - `v`: source selection mode
 - `c`: external LLM session を開く
@@ -136,10 +136,13 @@ glowed --help
 
 project-local の設定が global 設定を上書きします。
 
+Markdown scan の除外ルールは `<project-root>/.glowedignore` のみを参照します。文法は gitignore スタイルです。root の `build` だけを除外するには `/build/`、名前が `build` の全ディレクトリを除外するには `build/` を使います。
+
 参照:
 
 - [`glowed.schema.json`](glowed.schema.json)
 - [`.glowed.example.json`](.glowed.example.json)
+- [`.glowedignore`](.glowedignore)
 
 ## External LLM session
 

@@ -22,8 +22,10 @@ This skill releases `glowed` from the main repository and updates the Homebrew t
 3. Run `go test ./...` before tagging.
 4. Confirm `gh auth status` works before creating GitHub resources.
 5. Use the full tap path in user-facing instructions: `brew install khw1031/tap/glowed`.
-6. Keep ignored local files such as `.TODO.md` and `bin/` out of commits.
-7. If a step fails, stop and report the failed command and recovery steps.
+6. Keep ignored local files such as `.TODO.md`, `.release/`, and `bin/` out of commits.
+7. Generate and review LLM-drafted changelog notes before tagging.
+8. Treat `CHANGELOG.md` as the public source of truth for release contents; GitHub Release notes should be extracted from it.
+9. If a step fails, stop and report the failed command and recovery steps.
 
 ## Main repository release checklist
 
@@ -41,6 +43,37 @@ Determine the release tag:
 git tag --list 'v*' --sort=-version:refname | head -10
 ```
 
+Generate LLM-drafted changelog notes before tagging. The LLM command must read the prompt from stdin and write Markdown to stdout. If no LLM command is configured, the script writes `.release/changelog-prompt-vX.Y.Z.md`; ask the user to run their preferred LLM and save the result as `.release/notes-vX.Y.Z.md`.
+
+```bash
+# Example with Codex CLI:
+scripts/draft-changelog.sh vX.Y.Z --llm-cmd "codex exec --sandbox read-only -"
+
+# Or with an environment-specific command:
+GLOWED_CHANGELOG_LLM="YOUR_LLM_COMMAND" scripts/draft-changelog.sh vX.Y.Z
+```
+
+Review and edit the generated notes:
+
+```bash
+${EDITOR:-vi} .release/notes-vX.Y.Z.md
+```
+
+Update and commit `CHANGELOG.md`. The reviewed release contents become public in this file; `.release/` remains a local draft workspace only.
+
+```bash
+scripts/update-changelog.sh vX.Y.Z .release/notes-vX.Y.Z.md
+git add CHANGELOG.md
+git commit -m "Update changelog for vX.Y.Z"
+go test ./...
+```
+
+Extract GitHub Release notes from the committed changelog section:
+
+```bash
+scripts/extract-release-notes.sh vX.Y.Z /tmp/glowed-release-notes-vX.Y.Z.md
+```
+
 Create and push the tag:
 
 ```bash
@@ -49,16 +82,16 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-Create the GitHub Release:
+Create the GitHub Release using notes extracted from the public `CHANGELOG.md` section:
 
 ```bash
 gh release create vX.Y.Z \
   --repo khw1031/glowed \
   --title "vX.Y.Z" \
-  --generate-notes
+  --notes-file /tmp/glowed-release-notes-vX.Y.Z.md
 ```
 
-If release notes need manual content, use `--notes-file <file>` instead of `--generate-notes`.
+Use `--generate-notes` only if the changelog step was intentionally skipped.
 
 ## Homebrew tap checklist
 

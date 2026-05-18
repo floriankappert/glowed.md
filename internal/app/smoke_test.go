@@ -50,13 +50,16 @@ func TestModelStartupSmokeLoadsProjectConfigAndMarkdown(t *testing.T) {
 	config := `{
   "prefix": "ctrl+space",
   "preview": {"style": "dark"},
-  "scan": {"excludeDirs": ["ignored"], "maxFileBytes": 1048576},
+  "scan": {"maxFileBytes": 1048576},
   "mouse": {"enabled": false}
 }`
 	if err := os.WriteFile(filepath.Join(root, ".glowed.json"), []byte(config), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("---\ntags: [smoke]\n---\n\n# Hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".glowedignore"), []byte("ignored/\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(root, "ignored"), 0755); err != nil {

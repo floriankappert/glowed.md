@@ -24,9 +24,9 @@ glowed 目前实现为一个基于 Go 的终端应用。
 ## 功能
 
 - 扫描 project root 下的 `.md` 文件
-- 支持常见 ignore directory 和基础 `.gitignore` 规则
+- 支持 project-local `.glowedignore` 扫描排除规则
 - 按文件名、frontmatter、`tag:` / `tags:` metadata 搜索
-- sidebar 文档列表
+- 可展开/折叠的 sidebar 目录树
 - 基于 Glamour 的 Markdown preview
 - raw Markdown edit mode
 - 带 backup 的 atomic save
@@ -112,8 +112,8 @@ glowed --help
 
 - `q`: 退出
 - `/`: 聚焦搜索
-- `tab`: 循环切换 focus
-- `enter`: 打开选中的文档 / 聚焦 preview
+- `tab`: 循环切换 focus；当 sidebar 目录被选中时展开/折叠
+- `enter`: 打开选中的文档 / 聚焦 preview；当 sidebar 目录被选中时展开/折叠
 - `e`: 编辑当前文档
 - `v`: source selection mode
 - `c`: 打开 external LLM session
@@ -136,10 +136,13 @@ glowed --help
 
 project-local 配置会覆盖 global 配置。
 
+Markdown 扫描排除规则只读取 `<project-root>/.glowedignore`。语法为 gitignore 风格。只排除根目录 `build` 请使用 `/build/`，排除所有名为 `build` 的目录请使用 `build/`。
+
 参考：
 
 - [`glowed.schema.json`](glowed.schema.json)
 - [`.glowed.example.json`](.glowed.example.json)
+- [`.glowedignore`](.glowedignore)
 
 ## External LLM session
 

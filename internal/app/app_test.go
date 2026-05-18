@@ -205,6 +205,50 @@ func TestSourceSelectionModeLoadsRawMarkdown(t *testing.T) {
 	}
 }
 
+func TestSidebarDirectoryRowsExpandCollapse(t *testing.T) {
+	documents := []docs.Document{
+		{Abs: "/tmp/root/README.md", Rel: "README.md", Name: "README.md"},
+		{Abs: "/tmp/root/notes/a.md", Rel: "notes/a.md", Name: "a.md"},
+		{Abs: "/tmp/root/notes/build/b.md", Rel: "notes/build/b.md", Name: "b.md"},
+	}
+	m := Model{Width: 80, Height: 12, Results: documents, ExpandedDirs: map[string]bool{}}
+	m.rebuildSidebarRows()
+
+	if len(m.SidebarRows) != 2 || m.SidebarRows[0].Kind != sidebarRowDirectory || m.SidebarRows[0].Rel != "notes" {
+		t.Fatalf("initial sidebar rows = %#v, want collapsed notes dir plus README", m.SidebarRows)
+	}
+	m.SidebarSelected = 0
+	m.toggleSidebarDirectory()
+	if !m.ExpandedDirs["notes"] {
+		t.Fatal("notes directory was not expanded")
+	}
+	if idx := m.findSidebarRow(sidebarRowDocument, "notes/a.md", -1); idx < 0 {
+		t.Fatalf("expanded sidebar rows = %#v, want notes/a.md visible", m.SidebarRows)
+	}
+	buildIdx := m.findSidebarRow(sidebarRowDirectory, "notes/build", -1)
+	if buildIdx < 0 {
+		t.Fatalf("expanded sidebar rows = %#v, want notes/build directory visible", m.SidebarRows)
+	}
+	m.SidebarSelected = buildIdx
+	m.toggleSidebarDirectory()
+	if idx := m.findSidebarRow(sidebarRowDocument, "notes/build/b.md", -1); idx < 0 {
+		t.Fatalf("nested expanded sidebar rows = %#v, want notes/build/b.md visible", m.SidebarRows)
+	}
+}
+
+func TestSidebarTabTogglesSelectedDirectory(t *testing.T) {
+	documents := []docs.Document{{Abs: "/tmp/root/notes/a.md", Rel: "notes/a.md", Name: "a.md"}}
+	m := Model{Width: 80, Height: 12, Results: documents, SidebarVisible: true, Focus: FocusSidebar, ExpandedDirs: map[string]bool{}}
+	m.rebuildSidebarRows()
+	if !m.sidebarToggleKey("tab") {
+		t.Fatal("tab should toggle a selected sidebar directory")
+	}
+	m.toggleSidebarDirectory()
+	if idx := m.findSidebarRow(sidebarRowDocument, "notes/a.md", -1); idx < 0 {
+		t.Fatalf("rows after tab toggle = %#v, want notes/a.md visible", m.SidebarRows)
+	}
+}
+
 func TestPreviewScrollPreservedPerDocument(t *testing.T) {
 	root := t.TempDir()
 	first := filepath.Join(root, "first.md")

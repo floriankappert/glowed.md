@@ -28,8 +28,7 @@ type FooterConfig struct {
 }
 
 type ScanConfig struct {
-	ExcludeDirs  []string `json:"excludeDirs"`
-	MaxFileBytes int64    `json:"maxFileBytes"`
+	MaxFileBytes int64 `json:"maxFileBytes"`
 }
 
 type MouseConfig struct {
@@ -73,7 +72,6 @@ func Default() Config {
 		Preview: PreviewConfig{Style: "dark", PreserveNewLines: true},
 		Footer:  FooterConfig{Actions: []string{"search", "edit", "sourceSelect", "openLLM", "toggleSidebar", "refresh", "quit"}},
 		Scan: ScanConfig{
-			ExcludeDirs:  []string{".git", "node_modules", "dist", "build", ".next", "target", "vendor"},
 			MaxFileBytes: 1024 * 1024,
 		},
 		Mouse: MouseConfig{Enabled: true},
@@ -170,9 +168,6 @@ func mergeJSON(cfg *Config, b []byte) error {
 		if err := json.Unmarshal(v, &s); err != nil {
 			return err
 		}
-		if len(s.ExcludeDirs) > 0 {
-			cfg.Scan.ExcludeDirs = s.ExcludeDirs
-		}
 		if s.MaxFileBytes > 0 {
 			cfg.Scan.MaxFileBytes = s.MaxFileBytes
 		}
@@ -226,9 +221,6 @@ func normalize(cfg *Config) {
 	}
 	if cfg.Scan.MaxFileBytes <= 0 {
 		cfg.Scan.MaxFileBytes = 1024 * 1024
-	}
-	if len(cfg.Scan.ExcludeDirs) == 0 {
-		cfg.Scan.ExcludeDirs = Default().Scan.ExcludeDirs
 	}
 	if len(cfg.Footer.Actions) == 0 {
 		cfg.Footer.Actions = Default().Footer.Actions

@@ -1,16 +1,28 @@
+# glowed Markdown scan ignore rules
+# Patterns use gitignore-style syntax and are only used by glowed.
+
 # Project-local task notes
 .TODO.md
 
 # Generated release draft artifacts
 .release/
 
-# Build artifacts
+# VCS / dependencies
+.git/
+node_modules/
+vendor/
+
+# Common generated outputs
+dist/
+.next/
+target/
+tmp/
+/bin/
+
+# Root build output only. Nested notes/build/*.md remains visible.
+/build/
 /glowed
 /glowed.exe
-/bin/
-/dist/
-/build/
-/tmp/
 
 # Go test/coverage/profile outputs
 *.test
@@ -29,10 +41,6 @@ mem.out
 .env
 .env.*
 !.env.example
-
-# Local config
-# .glowed.json is project configuration and should be versioned.
-.glowed.local.json
 
 # Logs
 *.log

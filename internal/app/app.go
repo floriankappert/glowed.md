@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -79,6 +80,22 @@ type chatResultMsg struct {
 	Err     error
 }
 
+type sidebarRowKind int
+
+const (
+	sidebarRowDocument sidebarRowKind = iota
+	sidebarRowDirectory
+)
+
+type sidebarRow struct {
+	Kind     sidebarRowKind
+	Rel      string
+	Name     string
+	Depth    int
+	DocIndex int
+	Expanded bool
+}
+
 type llmLaunchResultMsg struct {
 	Result llmclient.LaunchResult
 	Err    error
@@ -93,16 +110,20 @@ type Model struct {
 	Width  int
 	Height int
 
-	Docs    []docs.Document
-	Results []docs.Document
-	Query   string
+	Docs       []docs.Document
+	Results    []docs.Document
+	ScanReport docs.ScanReport
+	Query      string
 
-	Selected       int
-	ListScroll     int
-	PreviewScroll  int
-	PreviewScrolls map[string]int
-	PreviewLines   []string
-	PreviewRaw     string
+	Selected        int
+	ListScroll      int
+	SidebarRows     []sidebarRow
+	SidebarSelected int
+	ExpandedDirs    map[string]bool
+	PreviewScroll   int
+	PreviewScrolls  map[string]int
+	PreviewLines    []string
+	PreviewRaw      string
 
 	Mode           Mode
 	Focus          Focus
@@ -151,6 +172,7 @@ func NewWithInitial(root string, initialPath string) Model {
 		Focus:          FocusPreview,
 		SidebarVisible: false,
 		MouseEnabled:   true,
+		ExpandedDirs:   map[string]bool{},
 		PreviewScrolls: map[string]int{},
 		StatusKind:     "info",
 		Editor: editorState{
@@ -264,6 +286,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	if m.Focus == FocusSearch {
 		m.handleSearchKey(msg)
+		return m, nil
+	}
+
+	if m.SidebarVisible && m.Focus == FocusSidebar && m.sidebarToggleKey(key) {
+		m.toggleSidebarDirectory()
 		return m, nil
 	}
 
@@ -385,17 +412,21 @@ func (m *Model) handlePreviewNavigation(key string) {
 func (m *Model) handleSidebarNavigation(key string) {
 	switch key {
 	case "up", "k":
-		m.moveSelection(-1)
+		m.moveSidebarSelection(-1)
 	case "down", "j":
-		m.moveSelection(1)
+		m.moveSidebarSelection(1)
 	case "pgup":
-		m.moveSelection(-max(1, m.contentHeight()-1))
+		m.moveSidebarSelection(-max(1, m.contentHeight()-1))
 	case "pgdown":
-		m.moveSelection(max(1, m.contentHeight()-1))
+		m.moveSidebarSelection(max(1, m.contentHeight()-1))
 	case "home":
-		m.setSelection(0)
+		m.setSidebarSelection(0)
 	case "end":
-		m.setSelection(len(m.Results) - 1)
+		m.setSidebarSelection(len(m.SidebarRows) - 1)
+	case "right", "l":
+		m.expandSidebarDirectory()
+	case "left", "h":
+		m.collapseSidebarDirectory()
 	}
 }
 
@@ -564,10 +595,13 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	}
 	if m.SidebarVisible && x < m.leftWidth() {
 		idx := m.ListScroll + row
-		if idx >= 0 && idx < len(m.Results) {
+		if idx >= 0 && idx < len(m.SidebarRows) {
 			m.Mode = ModePreview
 			m.Focus = FocusSidebar
-			m.setSelection(idx)
+			m.setSidebarSelection(idx)
+			if m.SidebarRows[idx].Kind == sidebarRowDirectory {
+				m.toggleSidebarDirectory()
+			}
 		}
 		return nil
 	}
@@ -603,7 +637,7 @@ func (m *Model) scrollAt(x int, delta int) {
 		return
 	}
 	if m.SidebarVisible && x < m.leftWidth() {
-		m.ListScroll = clamp(m.ListScroll+delta, 0, max(0, len(m.Results)-m.contentHeight()))
+		m.ListScroll = clamp(m.ListScroll+delta, 0, max(0, len(m.SidebarRows)-m.contentHeight()))
 		return
 	}
 	if m.rawBufferMode() {
@@ -614,14 +648,32 @@ func (m *Model) scrollAt(x int, delta int) {
 }
 
 func (m *Model) scan(reason string) {
-	list, err := docs.Scan(m.Root, m.Cfg.Scan.ExcludeDirs, m.Cfg.Scan.MaxFileBytes)
+	list, report, err := docs.ScanWithReport(m.Root, m.Cfg.Scan.MaxFileBytes)
 	if err != nil {
 		m.setStatus(err.Error(), "error")
 		return
 	}
 	m.Docs = list
+	m.ScanReport = report
 	m.applySearch(reason != "ready")
-	m.setStatus(fmt.Sprintf("%d markdown file(s) scanned", len(m.Docs)), "success")
+	m.setStatus(m.scanStatus(), "success")
+}
+
+func (m Model) scanStatus() string {
+	status := fmt.Sprintf("%d markdown file(s) scanned", len(m.Docs))
+	if len(m.ScanReport.Excluded) == 0 {
+		return status
+	}
+	first := m.ScanReport.Excluded[0]
+	kind := "file"
+	if first.IsDir {
+		kind = "dir"
+	}
+	extra := ""
+	if len(m.ScanReport.Excluded) > 1 {
+		extra = fmt.Sprintf(", +%d more", len(m.ScanReport.Excluded)-1)
+	}
+	return fmt.Sprintf("%s, %d hidden (first %s: %s by %s%s)", status, len(m.ScanReport.Excluded), kind, first.Rel, first.Reason, extra)
 }
 
 func (m *Model) applySearch(keep bool) {
@@ -642,11 +694,15 @@ func (m *Model) applySearch(keep bool) {
 	} else {
 		m.Selected = 0
 		m.ListScroll = 0
+		m.SidebarSelected = 0
 	}
 	if m.Selected >= len(m.Results) {
 		m.Selected = max(0, len(m.Results)-1)
 	}
-	m.ensureSelectionVisible()
+	m.expandAncestorsForCurrentDoc()
+	m.rebuildSidebarRows()
+	m.syncSidebarSelectionToCurrentDoc()
+	m.ensureSidebarSelectionVisible()
 	m.restorePreviewScroll()
 	m.reloadPreview()
 }
@@ -960,34 +1016,329 @@ func limitContextBytes(s string, maxBytes int) (string, bool) {
 	return b.String(), true
 }
 
-func (m *Model) moveSelection(delta int) {
-	m.setSelection(m.Selected + delta)
+func (m *Model) moveSidebarSelection(delta int) {
+	m.setSidebarSelection(m.SidebarSelected + delta)
+}
+
+func (m *Model) setSidebarSelection(idx int) {
+	if len(m.SidebarRows) == 0 {
+		m.SidebarSelected = 0
+		m.ListScroll = 0
+		return
+	}
+	m.SidebarSelected = clamp(idx, 0, len(m.SidebarRows)-1)
+	if row := m.currentSidebarRow(); row != nil && row.Kind == sidebarRowDocument {
+		m.selectDocument(row.DocIndex, false)
+	}
+	m.ensureSidebarSelectionVisible()
 }
 
 func (m *Model) setSelection(idx int) {
+	m.selectDocument(idx, true)
+}
+
+func (m *Model) selectDocument(idx int, syncSidebar bool) {
 	m.clearEditorSelection()
 	m.rememberPreviewScroll()
 	if len(m.Results) == 0 {
 		m.Selected = 0
 		m.ListScroll = 0
+		m.SidebarSelected = 0
+		m.SidebarRows = nil
 		m.PreviewScroll = 0
 		m.reloadPreview()
 		return
 	}
 	m.Selected = clamp(idx, 0, len(m.Results)-1)
-	m.ensureSelectionVisible()
+	if syncSidebar {
+		m.expandAncestorsForCurrentDoc()
+		m.rebuildSidebarRows()
+		m.syncSidebarSelectionToCurrentDoc()
+	}
+	m.ensureSidebarSelectionVisible()
 	m.restorePreviewScroll()
 	m.reloadPreview()
 }
 
-func (m *Model) ensureSelectionVisible() {
+func (m *Model) ensureSidebarSelectionVisible() {
 	h := m.contentHeight()
-	if m.Selected < m.ListScroll {
-		m.ListScroll = m.Selected
+	if len(m.SidebarRows) == 0 {
+		m.SidebarSelected = 0
+		m.ListScroll = 0
+		return
 	}
-	if m.Selected >= m.ListScroll+h {
-		m.ListScroll = max(0, m.Selected-h+1)
+	m.SidebarSelected = clamp(m.SidebarSelected, 0, len(m.SidebarRows)-1)
+	if m.SidebarSelected < m.ListScroll {
+		m.ListScroll = m.SidebarSelected
 	}
+	if m.SidebarSelected >= m.ListScroll+h {
+		m.ListScroll = max(0, m.SidebarSelected-h+1)
+	}
+	m.ListScroll = clamp(m.ListScroll, 0, max(0, len(m.SidebarRows)-h))
+}
+
+func (m *Model) sidebarToggleKey(key string) bool {
+	if key != "tab" && key != "enter" {
+		return false
+	}
+	row := m.currentSidebarRow()
+	return row != nil && row.Kind == sidebarRowDirectory
+}
+
+func (m *Model) currentSidebarRow() *sidebarRow {
+	if len(m.SidebarRows) == 0 || m.SidebarSelected < 0 || m.SidebarSelected >= len(m.SidebarRows) {
+		return nil
+	}
+	return &m.SidebarRows[m.SidebarSelected]
+}
+
+func (m *Model) toggleSidebarDirectory() {
+	row := m.currentSidebarRow()
+	if row == nil || row.Kind != sidebarRowDirectory {
+		return
+	}
+	m.ensureSidebarState()
+	m.ExpandedDirs[row.Rel] = !m.ExpandedDirs[row.Rel]
+	m.rebuildSidebarRows()
+	if idx := m.findSidebarRow(sidebarRowDirectory, row.Rel, -1); idx >= 0 {
+		m.SidebarSelected = idx
+	}
+	m.ensureSidebarSelectionVisible()
+	state := "collapsed"
+	if m.ExpandedDirs[row.Rel] {
+		state = "expanded"
+	}
+	m.setStatus(fmt.Sprintf("%s %s", row.Rel, state), "info")
+}
+
+func (m *Model) expandSidebarDirectory() {
+	row := m.currentSidebarRow()
+	if row == nil || row.Kind != sidebarRowDirectory || row.Expanded {
+		return
+	}
+	m.toggleSidebarDirectory()
+}
+
+func (m *Model) collapseSidebarDirectory() {
+	row := m.currentSidebarRow()
+	if row == nil {
+		return
+	}
+	m.ensureSidebarState()
+	if row.Kind == sidebarRowDirectory && row.Expanded {
+		m.toggleSidebarDirectory()
+		return
+	}
+	parent := parentSlashRel(row.Rel)
+	if parent == "" {
+		return
+	}
+	if idx := m.findSidebarRow(sidebarRowDirectory, parent, -1); idx >= 0 {
+		m.SidebarSelected = idx
+		m.ensureSidebarSelectionVisible()
+	}
+}
+
+func (m *Model) ensureSidebarState() {
+	if m.ExpandedDirs == nil {
+		m.ExpandedDirs = map[string]bool{}
+	}
+}
+
+func (m *Model) expandAncestorsForCurrentDoc() {
+	doc := m.currentDoc()
+	if doc == nil || !m.sidebarTreeMode() {
+		return
+	}
+	m.ensureSidebarState()
+	for _, dir := range ancestorDirs(doc.Rel) {
+		m.ExpandedDirs[dir] = true
+	}
+}
+
+func (m *Model) rebuildSidebarRows() {
+	m.ensureSidebarState()
+	oldKind := sidebarRowDocument
+	oldRel := ""
+	oldDocIndex := -1
+	if row := m.currentSidebarRow(); row != nil {
+		oldKind = row.Kind
+		oldRel = row.Rel
+		oldDocIndex = row.DocIndex
+	}
+	m.SidebarRows = m.buildSidebarRows()
+	if len(m.SidebarRows) == 0 {
+		m.SidebarSelected = 0
+		m.ListScroll = 0
+		return
+	}
+	if oldRel != "" {
+		if idx := m.findSidebarRow(oldKind, oldRel, oldDocIndex); idx >= 0 {
+			m.SidebarSelected = idx
+		} else {
+			m.SidebarSelected = clamp(m.SidebarSelected, 0, len(m.SidebarRows)-1)
+		}
+	} else {
+		m.SidebarSelected = clamp(m.SidebarSelected, 0, len(m.SidebarRows)-1)
+	}
+	m.ensureSidebarSelectionVisible()
+}
+
+func (m Model) buildSidebarRows() []sidebarRow {
+	if strings.TrimSpace(m.Query) != "" {
+		rows := make([]sidebarRow, 0, len(m.Results))
+		for i, doc := range m.Results {
+			rows = append(rows, sidebarRow{Kind: sidebarRowDocument, Rel: slashRel(doc.Rel), Name: doc.Name, DocIndex: i})
+		}
+		return rows
+	}
+
+	root := newSidebarTreeNode("", "")
+	for i, doc := range m.Results {
+		parts := splitSlashRel(doc.Rel)
+		if len(parts) == 0 {
+			continue
+		}
+		node := root
+		for _, part := range parts[:len(parts)-1] {
+			node = node.child(part)
+		}
+		node.docs = append(node.docs, i)
+	}
+
+	rows := []sidebarRow{}
+	var walk func(node *sidebarTreeNode, depth int)
+	walk = func(node *sidebarTreeNode, depth int) {
+		for _, child := range node.sortedDirs() {
+			rows = append(rows, sidebarRow{
+				Kind:     sidebarRowDirectory,
+				Rel:      child.rel,
+				Name:     child.name,
+				Depth:    depth,
+				DocIndex: -1,
+				Expanded: m.ExpandedDirs[child.rel],
+			})
+			if m.ExpandedDirs[child.rel] {
+				walk(child, depth+1)
+			}
+		}
+		for _, docIndex := range node.docs {
+			doc := m.Results[docIndex]
+			rows = append(rows, sidebarRow{Kind: sidebarRowDocument, Rel: slashRel(doc.Rel), Name: doc.Name, Depth: depth, DocIndex: docIndex})
+		}
+	}
+	walk(root, 0)
+	return rows
+}
+
+func (m *Model) syncSidebarSelectionToCurrentDoc() {
+	if len(m.SidebarRows) == 0 || len(m.Results) == 0 {
+		m.SidebarSelected = 0
+		return
+	}
+	if idx := m.findSidebarRow(sidebarRowDocument, slashRel(m.Results[m.Selected].Rel), m.Selected); idx >= 0 {
+		m.SidebarSelected = idx
+	}
+}
+
+func (m Model) findSidebarRow(kind sidebarRowKind, rel string, docIndex int) int {
+	rel = slashRel(rel)
+	for i, row := range m.SidebarRows {
+		if row.Kind != kind || row.Rel != rel {
+			continue
+		}
+		if kind == sidebarRowDocument && docIndex >= 0 && row.DocIndex != docIndex {
+			continue
+		}
+		return i
+	}
+	return -1
+}
+
+func (m Model) sidebarTreeMode() bool {
+	return strings.TrimSpace(m.Query) == ""
+}
+
+type sidebarTreeNode struct {
+	name string
+	rel  string
+	dirs map[string]*sidebarTreeNode
+	docs []int
+}
+
+func newSidebarTreeNode(name, rel string) *sidebarTreeNode {
+	return &sidebarTreeNode{name: name, rel: rel, dirs: map[string]*sidebarTreeNode{}}
+}
+
+func (n *sidebarTreeNode) child(name string) *sidebarTreeNode {
+	if child, ok := n.dirs[name]; ok {
+		return child
+	}
+	rel := name
+	if n.rel != "" {
+		rel = n.rel + "/" + name
+	}
+	child := newSidebarTreeNode(name, rel)
+	n.dirs[name] = child
+	return child
+}
+
+func (n *sidebarTreeNode) sortedDirs() []*sidebarTreeNode {
+	names := make([]string, 0, len(n.dirs))
+	for name := range n.dirs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]*sidebarTreeNode, 0, len(names))
+	for _, name := range names {
+		out = append(out, n.dirs[name])
+	}
+	return out
+}
+
+func splitSlashRel(rel string) []string {
+	rel = slashRel(rel)
+	if rel == "" || rel == "." {
+		return nil
+	}
+	parts := strings.Split(rel, "/")
+	out := parts[:0]
+	for _, part := range parts {
+		if part != "" && part != "." {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func ancestorDirs(rel string) []string {
+	parts := splitSlashRel(rel)
+	if len(parts) <= 1 {
+		return nil
+	}
+	out := make([]string, 0, len(parts)-1)
+	cur := ""
+	for _, part := range parts[:len(parts)-1] {
+		if cur == "" {
+			cur = part
+		} else {
+			cur += "/" + part
+		}
+		out = append(out, cur)
+	}
+	return out
+}
+
+func parentSlashRel(rel string) string {
+	parts := splitSlashRel(rel)
+	if len(parts) <= 1 {
+		return ""
+	}
+	return strings.Join(parts[:len(parts)-1], "/")
+}
+
+func slashRel(rel string) string {
+	return strings.TrimPrefix(filepath.ToSlash(filepath.Clean(rel)), "./")
 }
 
 func (m *Model) scrollPreview(delta int) {
@@ -1306,28 +1657,48 @@ func (m Model) renderSeparator() string {
 
 func (m Model) renderListLine(row int) string {
 	idx := m.ListScroll + row
-	if idx >= len(m.Results) {
+	rows := m.SidebarRows
+	if len(rows) == 0 && len(m.Results) > 0 {
+		rows = m.buildSidebarRows()
+	}
+	if idx >= len(rows) {
 		return fitPlain("", m.leftWidth())
 	}
-	doc := m.Results[idx]
+	sidebarRow := rows[idx]
 	prefix := "  "
-	if idx == m.Selected {
+	if idx == m.SidebarSelected {
 		prefix = "› "
 	}
-	tags := ""
-	if len(doc.Tags) > 0 {
-		shown := doc.Tags
-		if len(shown) > 2 {
-			shown = shown[:2]
+	indent := strings.Repeat("  ", sidebarRow.Depth)
+	lineText := ""
+	if sidebarRow.Kind == sidebarRowDirectory {
+		icon := "▸"
+		if sidebarRow.Expanded {
+			icon = "▾"
 		}
-		tags = " #" + strings.Join(shown, " #")
+		lineText = prefix + indent + icon + " " + sidebarRow.Name + "/"
+	} else {
+		doc := m.Results[sidebarRow.DocIndex]
+		label := doc.Rel
+		if m.sidebarTreeMode() {
+			label = doc.Name
+		}
+		tags := ""
+		if len(doc.Tags) > 0 {
+			shown := doc.Tags
+			if len(shown) > 2 {
+				shown = shown[:2]
+			}
+			tags = " #" + strings.Join(shown, " #")
+		}
+		snippet := ""
+		if m.Query != "" && doc.Snippet != "" {
+			snippet = " · " + doc.Snippet
+		}
+		lineText = prefix + indent + "  " + label + styleDim.Render(tags+snippet)
 	}
-	snippet := ""
-	if m.Query != "" && doc.Snippet != "" {
-		snippet = " · " + doc.Snippet
-	}
-	line := fitPlain(prefix+doc.Rel+styleDim.Render(tags+snippet), m.leftWidth())
-	if idx == m.Selected {
+	line := fitPlain(lineText, m.leftWidth())
+	if idx == m.SidebarSelected {
 		return styleReverse.Render(stripANSI(line))
 	}
 	return line

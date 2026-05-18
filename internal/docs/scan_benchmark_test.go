@@ -9,7 +9,7 @@ import (
 
 func BenchmarkScanLargeDirectory(b *testing.B) {
 	root := b.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n*.tmp.md\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".glowedignore"), []byte("ignored/\n*.tmp.md\n"), 0644); err != nil {
 		b.Fatal(err)
 	}
 	for i := 0; i < 1000; i++ {
@@ -35,7 +35,7 @@ func BenchmarkScanLargeDirectory(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		got, err := Scan(root, []string{".git", "node_modules"}, 1024*1024)
+		got, err := Scan(root, 1024*1024)
 		if err != nil {
 			b.Fatal(err)
 		}

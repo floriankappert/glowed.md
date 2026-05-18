@@ -59,15 +59,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "excludeDirs": {
-          "type": "array",
-          "description": "Directory names skipped during markdown scan.",
-          "items": {
-            "type": "string"
-          },
-          "default": [".git", "node_modules", "dist", "build", ".next", "target", "vendor"],
-          "uniqueItems": true
-        },
         "maxFileBytes": {
           "type": "integer",
           "minimum": 1,

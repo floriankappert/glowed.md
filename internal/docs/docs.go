@@ -29,20 +29,32 @@ type Meta struct {
 	Tags           []string
 }
 
-func Scan(root string, excludeDirs []string, maxFileBytes int64) ([]Document, error) {
+type ScanReport struct {
+	Excluded []ExcludedPath
+}
+
+type ExcludedPath struct {
+	Rel    string
+	IsDir  bool
+	Reason string
+}
+
+func Scan(root string, maxFileBytes int64) ([]Document, error) {
+	out, _, err := ScanWithReport(root, maxFileBytes)
+	return out, err
+}
+
+func ScanWithReport(root string, maxFileBytes int64) ([]Document, ScanReport, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return nil, err
+		return nil, ScanReport{}, err
 	}
 	root = filepath.Clean(absRoot)
 
-	exclude := map[string]bool{}
-	for _, d := range excludeDirs {
-		exclude[d] = true
-	}
-	ignore := loadGitIgnore(root)
+	ignore := loadGlowedIgnore(root)
 
 	var out []Document
+	report := ScanReport{}
 	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -53,12 +65,16 @@ func Scan(root string, excludeDirs []string, maxFileBytes int64) ([]Document, er
 			rel = name
 		}
 		if entry.IsDir() {
-			if p != root && (exclude[name] || ignore.ignored(rel, true)) {
+			if p != root && ignore.ignored(rel, true) {
+				report.Excluded = append(report.Excluded, ExcludedPath{Rel: cleanSlashRel(rel), IsDir: true, Reason: ".glowedignore"})
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		if ignore.ignored(rel, false) {
+			if strings.ToLower(filepath.Ext(name)) == ".md" {
+				report.Excluded = append(report.Excluded, ExcludedPath{Rel: cleanSlashRel(rel), Reason: ".glowedignore"})
+			}
 			return nil
 		}
 		if !entry.Type().IsRegular() || strings.ToLower(filepath.Ext(name)) != ".md" {
@@ -70,6 +86,7 @@ func Scan(root string, excludeDirs []string, maxFileBytes int64) ([]Document, er
 			return nil
 		}
 		if maxFileBytes > 0 && info.Size() > maxFileBytes {
+			report.Excluded = append(report.Excluded, ExcludedPath{Rel: cleanSlashRel(rel), Reason: "maxFileBytes"})
 			return nil
 		}
 
@@ -87,10 +104,11 @@ func Scan(root string, excludeDirs []string, maxFileBytes int64) ([]Document, er
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, ScanReport{}, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Rel < out[j].Rel })
-	return out, nil
+	sort.Slice(report.Excluded, func(i, j int) bool { return report.Excluded[i].Rel < report.Excluded[j].Rel })
+	return out, report, nil
 }
 
 func ParseMeta(raw string) Meta {

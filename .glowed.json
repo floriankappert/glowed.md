@@ -37,15 +37,6 @@
     ]
   },
   "scan": {
-    "excludeDirs": [
-      ".git",
-      "node_modules",
-      "dist",
-      "build",
-      ".next",
-      "target",
-      "vendor"
-    ],
     "maxFileBytes": 1048576
   },
   "mouse": {

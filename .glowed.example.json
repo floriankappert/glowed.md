@@ -29,7 +29,6 @@
     "actions": ["search", "edit", "sourceSelect", "openLLM", "toggleSidebar", "refresh", "quit"]
   },
   "scan": {
-    "excludeDirs": [".git", "node_modules", "dist", "build", ".next", "target", "vendor"],
     "maxFileBytes": 1048576
   },
   "mouse": {

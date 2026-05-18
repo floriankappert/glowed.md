@@ -30,9 +30,9 @@ The current implementation was produced with Codex GPT-5.5, a local `TODO.md` pl
 ## Features
 
 - Scan `.md` files under the project root
-- Respect common ignored directories and basic `.gitignore` rules
+- Respect project-local `.glowedignore` scan rules
 - Search by filename, frontmatter, and `tag:` / `tags:` metadata
-- Sidebar document list
+- Sidebar directory tree with expandable/collapsible folders
 - Glamour-based Markdown preview
 - Raw Markdown edit mode
 - Atomic save with backup
@@ -118,8 +118,8 @@ glowed --help
 
 - `q`: quit
 - `/`: focus search
-- `tab`: cycle focus
-- `enter`: open selected document / focus preview
+- `tab`: cycle focus; when a sidebar directory is selected, expand/collapse it
+- `enter`: open selected document / focus preview; when a sidebar directory is selected, expand/collapse it
 - `e`: edit current document
 - `v`: source selection mode
 - `c`: open external LLM session
@@ -142,10 +142,25 @@ Configuration is loaded from:
 
 Project-local config overrides global config.
 
+Markdown scan ignore rules are loaded only from `<project-root>/.glowedignore`. The syntax is gitignore-style; use `/build/` for the root build directory only, or `build/` for every directory named `build`.
+
 See:
 
 - [`glowed.schema.json`](glowed.schema.json)
 - [`.glowed.example.json`](.glowed.example.json)
+- [`.glowedignore`](.glowedignore)
+
+## Release changelog drafts
+
+Before a release, generate LLM-drafted notes from the git log and diff, then publish the reviewed contents in `CHANGELOG.md`:
+
+```bash
+scripts/draft-changelog.sh vX.Y.Z --llm-cmd "codex exec --sandbox read-only -"
+scripts/update-changelog.sh vX.Y.Z .release/notes-vX.Y.Z.md
+scripts/extract-release-notes.sh vX.Y.Z /tmp/glowed-release-notes-vX.Y.Z.md
+```
+
+The generated `.release/` files are local draft artifacts. The public source of truth for each release is the version section in `CHANGELOG.md`; GitHub Release notes should be extracted from that section.
 
 ## External LLM sessions
 
