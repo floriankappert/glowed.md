@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.1 - 2026-05-18
+
+### Added
+
+- Added live Markdown file watching so files created, modified, deleted, or renamed while glowed is running are reflected automatically.
+- Added polling fallback for environments where native file watching cannot be started, with periodic retry of native watching.
+- Added project agent guidance files (`AGENTS.md` and `CLAUDE.md`) for repository-level coding and release conventions.
+
+### Fixed
+
+- Search input now accepts spaces, so multi-token AND searches such as `foo bar` can be typed directly.
+- Special keys and escape-like control input are filtered out of the search query instead of appearing as stray character codes.
+- Search now supports word deletion with `ctrl+w` and `alt+backspace`.
+- Editing buffers are protected from external file changes; glowed warns instead of overwriting dirty editor contents.
+
+### Changed
+
+- `.glowedignore` changes now trigger watcher rebuilds and automatic rescans while glowed is running.
+- Search help text now clarifies that whitespace-separated tokens are matched with AND semantics and that `tag:foo` searches tags.
+- Source selection mode reloads the raw buffer after external changes when possible, or returns safely to preview if reload fails.
+
+### Documentation
+
+- Documented live file watching, polling fallback, manual refresh behavior, and search syntax in the English and Korean READMEs.
+- Clarified that frontmatter `tag` / `tags` fields are indexed as metadata, while the query operator is `tag:foo`.
+
+### Internal
+
+- Added an `internal/watch` package backed by `fsnotify`, debounce handling in the Bubble Tea update loop, and tests for file watching, polling fallback, `.glowedignore` changes, and search input behavior.
+
+
 ## v0.2.0 - 2026-05-18
 
 ### Added
