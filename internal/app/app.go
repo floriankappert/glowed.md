@@ -19,6 +19,7 @@ import (
 	llmclient "github.com/khw1031/glowed/internal/llm"
 	"github.com/khw1031/glowed/internal/render"
 	"github.com/khw1031/glowed/internal/search"
+	filewatch "github.com/khw1031/glowed/internal/watch"
 )
 
 type Mode int
@@ -46,15 +47,16 @@ type footerButton struct {
 }
 
 type editorState struct {
-	Lines   []string
-	CX      int
-	CY      int
-	ScrollY int
-	ScrollX int
-	Dirty   bool
-	File    string
-	Undo    []editorSnapshot
-	Redo    []editorSnapshot
+	Lines           []string
+	CX              int
+	CY              int
+	ScrollY         int
+	ScrollX         int
+	Dirty           bool
+	ExternalChanged bool
+	File            string
+	Undo            []editorSnapshot
+	Redo            []editorSnapshot
 }
 
 type editorSnapshot struct {
@@ -140,6 +142,16 @@ type Model struct {
 	Status        string
 	StatusKind    string
 	FooterButtons []footerButton
+
+	Watcher                noteWatcher
+	WatchPolling           bool
+	WatchPollTicks         int
+	WatchFingerprint       string
+	WatchIgnoreFingerprint string
+	WatchDebounceGen       int
+	WatchLastEvent         filewatch.Event
+	WatchRestartPending    bool
+	WatchRescanAfterStart  bool
 }
 
 var (
@@ -190,7 +202,7 @@ func NewWithInitial(root string, initialPath string) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	return startWatcherCmd(m.Root)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -215,6 +227,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmLaunchResultMsg:
 		m.handleLLMLaunchResult(msg)
 		return m, nil
+	case watchStartedMsg:
+		return m.handleWatchStarted(msg)
+	case watchStartFailedMsg:
+		return m.handleWatchStartFailed(msg)
+	case watchFileChangedMsg:
+		return m.handleWatchFileChanged(msg)
+	case watchDebouncedMsg:
+		return m.handleWatchDebounced(msg)
+	case watchErrorMsg:
+		return m.handleWatchError(msg)
+	case watchClosedMsg:
+		return m.handleWatchClosed(msg)
+	case pollTickMsg:
+		return m.handlePollTick(msg)
 	}
 	return m, nil
 }
@@ -223,6 +249,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := normalizeKey(msg.String())
 
 	if key == "ctrl+c" {
+		m.shutdown()
 		return m, tea.Quit
 	}
 	if key == normalizeKey(m.Cfg.Prefix) {
@@ -489,6 +516,7 @@ func (m *Model) handleSourceNavigation(key string) {
 func (m Model) dispatch(action string) (Model, tea.Cmd) {
 	switch action {
 	case "quit":
+		m.shutdown()
 		return m, tea.Quit
 	case "search":
 		m.Focus = FocusSearch
@@ -648,15 +676,22 @@ func (m *Model) scrollAt(x int, delta int) {
 }
 
 func (m *Model) scan(reason string) {
-	list, report, err := docs.ScanWithReport(m.Root, m.Cfg.Scan.MaxFileBytes)
-	if err != nil {
+	if err := m.scanAndApply(reason != "ready"); err != nil {
 		m.setStatus(err.Error(), "error")
 		return
 	}
+	m.setStatus(m.scanStatus(), "success")
+}
+
+func (m *Model) scanAndApply(keep bool) error {
+	list, report, err := docs.ScanWithReport(m.Root, m.Cfg.Scan.MaxFileBytes)
+	if err != nil {
+		return err
+	}
 	m.Docs = list
 	m.ScanReport = report
-	m.applySearch(reason != "ready")
-	m.setStatus(m.scanStatus(), "success")
+	m.applySearch(keep)
+	return nil
 }
 
 func (m Model) scanStatus() string {
@@ -679,17 +714,24 @@ func (m Model) scanStatus() string {
 func (m *Model) applySearch(keep bool) {
 	m.rememberPreviewScroll()
 	old := ""
+	oldIndex := m.Selected
 	if doc := m.currentDoc(); doc != nil {
 		old = doc.Abs
 	}
 	m.Results = search.Filter(m.Docs, m.Query)
-	if keep && old != "" {
-		m.Selected = 0
-		for i, doc := range m.Results {
-			if doc.Abs == old {
-				m.Selected = i
-				break
+	if keep {
+		found := false
+		if old != "" {
+			for i, doc := range m.Results {
+				if doc.Abs == old {
+					m.Selected = i
+					found = true
+					break
+				}
 			}
+		}
+		if !found {
+			m.Selected = clamp(oldIndex, 0, max(0, len(m.Results)-1))
 		}
 	} else {
 		m.Selected = 0
@@ -797,6 +839,7 @@ func (m *Model) saveEditor() {
 	}
 	m.Editor.File = file
 	m.Editor.Dirty = false
+	m.Editor.ExternalChanged = false
 	m.clearEditorSelection()
 	m.Mode = ModePreview
 	m.Focus = FocusPreview

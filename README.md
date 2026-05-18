@@ -30,6 +30,7 @@ The current implementation was produced with Codex GPT-5.5, a local `TODO.md` pl
 ## Features
 
 - Scan `.md` files under the project root
+- Automatically refresh when Markdown files are created, modified, deleted, or renamed while glowed is running
 - Respect project-local `.glowedignore` scan rules
 - Search by filename, frontmatter, and `tag:` / `tags:` metadata
 - Sidebar directory tree with expandable/collapsible folders
@@ -127,7 +128,7 @@ glowed --help
 - `ctrl+z`: undo in edit mode
 - `ctrl+y`: redo in edit mode
 - `esc`: cancel search/edit/source mode depending on context
-- `r`: rescan project root
+- `r`: rescan project root manually; automatic file watching also refreshes Markdown changes while glowed is running
 - `ctrl+g b`: toggle sidebar
 - `ctrl+g l`: open external LLM session
 - `ctrl+g r`: rescan
@@ -143,6 +144,8 @@ Configuration is loaded from:
 Project-local config overrides global config.
 
 Markdown scan ignore rules are loaded only from `<project-root>/.glowedignore`. The syntax is gitignore-style; use `/build/` for the root build directory only, or `build/` for every directory named `build`.
+
+While glowed is running, it watches note-relevant filesystem changes with `fsnotify` and debounces rescans. If native file watching is unavailable, it falls back to periodic polling. The manual refresh key (`r`) remains available.
 
 See:
 

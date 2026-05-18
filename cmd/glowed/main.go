@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -35,9 +39,15 @@ func main() {
 	}
 
 	m := app.NewWithInitial(root, initial)
-	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx)}
 	program := tea.NewProgram(m, opts...)
-	if _, err := program.Run(); err != nil {
+	finalModel, err := program.Run()
+	if closer, ok := finalModel.(interface{ Shutdown() }); ok {
+		closer.Shutdown()
+	}
+	if err != nil && !(errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

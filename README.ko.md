@@ -24,6 +24,7 @@ glowed는 현재 Go 기반 터미널 애플리케이션으로 구현되어 있�
 ## 기능
 
 - project root 아래 `.md` 파일 스캔
+- 실행 중 Markdown 파일 생성/수정/삭제/rename을 자동 감지해 갱신
 - project-local `.glowedignore` 스캔 제외 규칙 반영
 - 파일명, frontmatter, `tag:` / `tags:` metadata 검색
 - 펼침/접힘 가능한 sidebar 디렉터리 트리
@@ -121,7 +122,7 @@ glowed --help
 - `ctrl+z`: edit mode undo
 - `ctrl+y`: edit mode redo
 - `esc`: context에 따라 검색/편집/source mode 취소
-- `r`: project root 재스캔
+- `r`: project root 수동 재스캔; 실행 중 Markdown 변경은 file watching으로도 자동 갱신
 - `ctrl+g b`: sidebar toggle
 - `ctrl+g l`: external LLM session 열기
 - `ctrl+g r`: 재스캔
@@ -137,6 +138,8 @@ glowed --help
 project-local 설정이 global 설정을 덮어씁니다.
 
 Markdown 스캔 제외 규칙은 `<project-root>/.glowedignore`만 참조합니다. 문법은 gitignore 스타일입니다. 루트 `build`만 제외하려면 `/build/`, 이름이 `build`인 모든 디렉터리를 제외하려면 `build/`를 사용합니다.
+
+실행 중에는 `fsnotify`로 note 관련 파일 변경을 감시하고 debounce 후 재스캔합니다. native file watching을 사용할 수 없으면 주기적 polling fallback을 사용합니다. 수동 refresh 키(`r`)도 계속 사용할 수 있습니다.
 
 참고:
 

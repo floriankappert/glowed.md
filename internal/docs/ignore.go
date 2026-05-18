@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+type IgnoreMatcher struct {
+	rules ignoreRules
+}
+
 type ignoreRules struct {
 	patterns []ignorePattern
 }
@@ -17,6 +21,14 @@ type ignorePattern struct {
 	DirOnly  bool
 	Anchored bool
 	HasSlash bool
+}
+
+func LoadIgnoreMatcher(root string) IgnoreMatcher {
+	return IgnoreMatcher{rules: loadGlowedIgnore(root)}
+}
+
+func (m IgnoreMatcher) Ignored(rel string, isDir bool) bool {
+	return m.rules.ignored(rel, isDir)
 }
 
 func loadGlowedIgnore(root string) ignoreRules {

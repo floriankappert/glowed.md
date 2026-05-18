@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/khw1031/glowed/internal/config"
 	"github.com/khw1031/glowed/internal/docs"
 	llmclient "github.com/khw1031/glowed/internal/llm"
+	filewatch "github.com/khw1031/glowed/internal/watch"
 )
 
 func TestNormalizeKeyCtrlSpaceAliases(t *testing.T) {
@@ -299,6 +301,305 @@ func TestPreviewScrollPreservedPerDocument(t *testing.T) {
 	m.setSelection(1)
 	if m.PreviewScroll != secondScroll {
 		t.Fatalf("restored second scroll = %d, want %d", m.PreviewScroll, secondScroll)
+	}
+}
+
+func TestExternalChangeAddsMarkdownDocument(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first.md")
+	if err := os.WriteFile(first, []byte("# First"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+
+	second := filepath.Join(root, "second.md")
+	if err := os.WriteFile(second, []byte("# Second"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m.rescanAfterExternalChange(filewatch.Event{Path: second, Rel: "second.md", Reason: "CREATE"})
+
+	if len(m.Results) != 2 {
+		t.Fatalf("results len = %d, want 2", len(m.Results))
+	}
+	if idx := m.findSidebarRow(sidebarRowDocument, "second.md", -1); idx < 0 {
+		t.Fatalf("sidebar rows = %#v, want second.md", m.SidebarRows)
+	}
+}
+
+func TestExternalChangeReloadsCurrentPreview(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "doc.md")
+	if err := os.WriteFile(path, []byte("# Old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+	m.reloadPreview()
+
+	if err := os.WriteFile(path, []byte("# New"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m.rescanAfterExternalChange(filewatch.Event{Path: path, Rel: "doc.md", Reason: "WRITE"})
+
+	if m.PreviewRaw != "# New" {
+		t.Fatalf("PreviewRaw = %q, want # New", m.PreviewRaw)
+	}
+}
+
+func TestExternalChangeDeletedCurrentDocumentSelectsNearest(t *testing.T) {
+	root := t.TempDir()
+	paths := []string{
+		filepath.Join(root, "a.md"),
+		filepath.Join(root, "b.md"),
+		filepath.Join(root, "c.md"),
+	}
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := New(root)
+	m.setSelection(1)
+	if got := m.currentDoc().Rel; got != "b.md" {
+		t.Fatalf("selected = %q, want b.md", got)
+	}
+
+	if err := os.Remove(paths[1]); err != nil {
+		t.Fatal(err)
+	}
+	m.rescanAfterExternalChange(filewatch.Event{Path: paths[1], Rel: "b.md", Reason: "REMOVE"})
+
+	if doc := m.currentDoc(); doc == nil || doc.Rel != "c.md" {
+		t.Fatalf("current doc after delete = %#v, want c.md", doc)
+	}
+}
+
+func TestExternalChangeDoesNotOverwriteDirtyEditorBuffer(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "doc.md")
+	if err := os.WriteFile(path, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+	m.enterEditMode()
+	m.Editor.CX = lineLen(m.Editor.Lines[0])
+	m.editorInsert(" local")
+	if got := strings.Join(m.Editor.Lines, "\n"); got != "original local" {
+		t.Fatalf("editor buffer before external change = %q", got)
+	}
+
+	if err := os.WriteFile(path, []byte("external"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m.rescanAfterExternalChange(filewatch.Event{Path: path, Rel: "doc.md", Reason: "WRITE"})
+
+	if got := strings.Join(m.Editor.Lines, "\n"); got != "original local" {
+		t.Fatalf("editor buffer after external change = %q, want original local", got)
+	}
+	if !m.Editor.ExternalChanged {
+		t.Fatal("Editor.ExternalChanged = false, want true")
+	}
+}
+
+func TestWatchDebounceIgnoresStaleGeneration(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first.md")
+	second := filepath.Join(root, "second.md")
+	if err := os.WriteFile(first, []byte("# First"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+	if err := os.WriteFile(second, []byte("# Second"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m.WatchDebounceGen = 2
+	m.WatchLastEvent = filewatch.Event{Path: second, Rel: "second.md", Reason: "CREATE"}
+	m, _ = m.handleWatchDebounced(watchDebouncedMsg{Generation: 1})
+	if len(m.Results) != 1 {
+		t.Fatalf("stale debounce changed results len to %d, want 1", len(m.Results))
+	}
+
+	m, _ = m.handleWatchDebounced(watchDebouncedMsg{Generation: 2})
+	if len(m.Results) != 2 {
+		t.Fatalf("current debounce results len = %d, want 2", len(m.Results))
+	}
+}
+
+type fakeNoteWatcher struct {
+	events chan filewatch.Event
+	errors chan error
+	closed int
+}
+
+func newFakeNoteWatcher() *fakeNoteWatcher {
+	return &fakeNoteWatcher{events: make(chan filewatch.Event), errors: make(chan error)}
+}
+
+func (w *fakeNoteWatcher) Events() <-chan filewatch.Event { return w.events }
+func (w *fakeNoteWatcher) Errors() <-chan error           { return w.errors }
+func (w *fakeNoteWatcher) Close() error {
+	w.closed++
+	return nil
+}
+
+func TestWatchStartedClosesPreviousWatcher(t *testing.T) {
+	oldWatcher := newFakeNoteWatcher()
+	newWatcher := newFakeNoteWatcher()
+	m := Model{Watcher: oldWatcher}
+
+	m, _ = m.handleWatchStarted(watchStartedMsg{Watcher: newWatcher, Fingerprint: "new"})
+
+	if oldWatcher.closed != 1 {
+		t.Fatalf("old watcher closed %d time(s), want 1", oldWatcher.closed)
+	}
+	if m.Watcher != newWatcher {
+		t.Fatalf("Watcher = %#v, want new watcher", m.Watcher)
+	}
+	if m.WatchPolling {
+		t.Fatal("WatchPolling = true, want false")
+	}
+}
+
+func TestWatchStartFailedClosesPreviousWatcher(t *testing.T) {
+	oldWatcher := newFakeNoteWatcher()
+	m := Model{Watcher: oldWatcher}
+
+	m, _ = m.handleWatchStartFailed(watchStartFailedMsg{Err: errors.New("boom"), Fingerprint: "fp"})
+
+	if oldWatcher.closed != 1 {
+		t.Fatalf("old watcher closed %d time(s), want 1", oldWatcher.closed)
+	}
+	if m.Watcher != nil {
+		t.Fatalf("Watcher = %#v, want nil", m.Watcher)
+	}
+	if !m.WatchPolling {
+		t.Fatal("WatchPolling = false, want true")
+	}
+}
+
+func TestWatchDebouncedRestartsWatcherAfterIgnoreChange(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "doc.md")
+	if err := os.WriteFile(path, []byte("# Doc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	watcher := newFakeNoteWatcher()
+	m := New(root)
+	m.Watcher = watcher
+	m.WatchDebounceGen = 1
+	m.WatchRestartPending = true
+	m.WatchLastEvent = filewatch.Event{Path: filepath.Join(root, ".glowedignore"), Rel: ".glowedignore", Reason: "WRITE", IgnoreChanged: true}
+
+	m, cmd := m.handleWatchDebounced(watchDebouncedMsg{Generation: 1})
+
+	if watcher.closed != 1 {
+		t.Fatalf("watcher closed %d time(s), want 1", watcher.closed)
+	}
+	if m.Watcher != nil {
+		t.Fatalf("Watcher = %#v, want nil while restart command is pending", m.Watcher)
+	}
+	if !m.WatchRescanAfterStart {
+		t.Fatal("WatchRescanAfterStart = false, want true")
+	}
+	if cmd == nil {
+		t.Fatal("restart command is nil")
+	}
+}
+
+func TestWatchStartedRescansAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	ignorePath := filepath.Join(root, ".glowedignore")
+	docPath := filepath.Join(root, "hidden.md")
+	if err := os.WriteFile(ignorePath, []byte("hidden.md\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docPath, []byte("# Hidden"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+	if len(m.Results) != 0 {
+		t.Fatalf("initial results len = %d, want 0", len(m.Results))
+	}
+	if err := os.WriteFile(ignorePath, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	watcher := newFakeNoteWatcher()
+	m.WatchRescanAfterStart = true
+
+	m, _ = m.handleWatchStarted(watchStartedMsg{Watcher: watcher, Fingerprint: "fp", IgnoreFingerprint: "ignore-fp"})
+
+	if m.WatchRescanAfterStart {
+		t.Fatal("WatchRescanAfterStart = true, want false")
+	}
+	if len(m.Results) != 1 || m.Results[0].Rel != "hidden.md" {
+		t.Fatalf("results after watcher restart = %#v, want hidden.md", m.Results)
+	}
+}
+
+func TestPollTickQueuesRescanAndMarksIgnoreChange(t *testing.T) {
+	m := Model{WatchPolling: true, WatchFingerprint: "old", WatchIgnoreFingerprint: "ignore-old"}
+
+	m, cmd := m.handlePollTick(pollTickMsg{Fingerprint: "new", IgnoreFingerprint: "ignore-new"})
+
+	if cmd == nil {
+		t.Fatal("poll tick command is nil")
+	}
+	if m.WatchDebounceGen != 1 {
+		t.Fatalf("WatchDebounceGen = %d, want 1", m.WatchDebounceGen)
+	}
+	if !m.WatchLastEvent.IgnoreChanged {
+		t.Fatal("WatchLastEvent.IgnoreChanged = false, want true")
+	}
+}
+
+func TestPollTickIgnoredWhenNotPolling(t *testing.T) {
+	m := Model{WatchPolling: false, WatchFingerprint: "old", WatchIgnoreFingerprint: "ignore-old"}
+
+	m, cmd := m.handlePollTick(pollTickMsg{Fingerprint: "new", IgnoreFingerprint: "ignore-new"})
+
+	if cmd != nil {
+		t.Fatalf("cmd = %#v, want nil", cmd)
+	}
+	if m.WatchFingerprint != "old" || m.WatchIgnoreFingerprint != "ignore-old" {
+		t.Fatalf("poll tick mutated non-polling model: fingerprint=%q ignore=%q", m.WatchFingerprint, m.WatchIgnoreFingerprint)
+	}
+}
+
+func TestPollTickPeriodicallyRetriesNativeWatcher(t *testing.T) {
+	m := Model{Root: t.TempDir(), WatchPolling: true, WatchPollTicks: watchPollRetryTicks - 1, WatchFingerprint: "same", WatchIgnoreFingerprint: "same-ignore"}
+
+	m, cmd := m.handlePollTick(pollTickMsg{Fingerprint: "same", IgnoreFingerprint: "same-ignore"})
+
+	if cmd == nil {
+		t.Fatal("retry command is nil")
+	}
+	if m.WatchPollTicks != 0 {
+		t.Fatalf("WatchPollTicks = %d, want 0 after retry", m.WatchPollTicks)
+	}
+}
+
+func TestGlowedIgnoreChangeRescansExcludedDocuments(t *testing.T) {
+	root := t.TempDir()
+	ignorePath := filepath.Join(root, ".glowedignore")
+	hidden := filepath.Join(root, "hidden.md")
+	if err := os.WriteFile(ignorePath, []byte("hidden.md\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hidden, []byte("# Hidden"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+	if len(m.Results) != 0 {
+		t.Fatalf("initial results len = %d, want 0", len(m.Results))
+	}
+
+	if err := os.WriteFile(ignorePath, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m.rescanAfterExternalChange(filewatch.Event{Path: ignorePath, Rel: ".glowedignore", Reason: "WRITE", IgnoreChanged: true})
+
+	if len(m.Results) != 1 || m.Results[0].Rel != "hidden.md" {
+		t.Fatalf("results after .glowedignore change = %#v, want hidden.md", m.Results)
 	}
 }
 
