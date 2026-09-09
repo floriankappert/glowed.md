@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.8 - 2026-09-09
+
+### Added
+
+- The action menu's reference list is back in browse mode, which had no non-runnable hints of its own and therefore showed no "keys" section at all: `↑↓` select, `enter` open, `tab` cycle focus, `shift+tab` sidebar focus.
+- `ctrl+t` toggles the sidebar. `ctrl+b` stays bound, but Ghostty claims it on macOS, where it never reaches the program.
+
+### Changed
+
+- The search input now shares the header's third row, next to the lightbulb, with the result counter beside it. It no longer costs a row of its own, and the status message takes that row while the search is idle. The compact header keeps a separate search row.
+- Menu labels and keys sit in their own columns: the label column is as wide as the longest label, so the keys line up instead of drifting to the far edge.
+- The toggle entries read `<> sidebar` and `<> edit/preview`, and a blank row separates them from *go home*.
+
+### Fixed
+
+- *delete file* could scroll out of sight on a short pane, which is the one entry that must always be visible. The menu now pins the title at the top and the destructive entry at the bottom, and scrolls only the entries between them.
+
+
 ## v0.2.2-floriankappert.7 - 2026-09-09
 
 ### Added

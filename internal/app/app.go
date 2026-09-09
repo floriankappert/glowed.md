@@ -339,7 +339,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// The sidebar toggle and focus switch work in every mode, including while
 	// editing, where the browse bindings are not available.
-	if key == "ctrl+b" {
+	// ctrl+t is the sidebar toggle: Ghostty claims ctrl+b on macOS, so it never
+	// reaches the program there. ctrl+b stays bound for terminals that pass it.
+	if key == "ctrl+t" || key == "ctrl+b" {
 		return m.dispatch("toggleSidebar")
 	}
 	if key == "shift+tab" {
@@ -1938,7 +1940,7 @@ func (m Model) View() string {
 	b.WriteString("\x1b[5 q") // steady bar cursor for Ghostty/xterm
 	b.WriteString(m.renderHeader())
 	b.WriteByte('\n')
-	if m.searchVisible() {
+	if m.searchVisible() && !m.logoHeader() {
 		b.WriteString(m.renderSearch())
 		b.WriteByte('\n')
 	}
@@ -2151,13 +2153,18 @@ func (m Model) renderHeader() string {
 		return fitANSI(compact, m.Width)
 	}
 
-	status := ""
+	// The search input takes the third row while it is in use; the status
+	// message has it otherwise.
+	third := ""
 	if m.Status != "" {
-		status = statusStyle(m.StatusKind).Render(m.Status)
+		third = statusStyle(m.StatusKind).Render(m.Status)
+	}
+	if m.searchVisible() {
+		third = m.searchField() + styleDim.Render(fmt.Sprintf("  %d/%d", len(m.Results), len(m.Docs)))
 	}
 	// The focus name would repeat the pane caption, and the file name would
 	// repeat both the status line and the toolbar path.
-	beside := []string{styleTitle.Render(AppName), mode + dirty, status}
+	beside := []string{styleTitle.Render(AppName), mode + dirty, third}
 
 	rows := make([]string, 0, headerRows+1)
 	for i, line := range splashLogo {
@@ -2171,14 +2178,18 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderSearch() string {
+	right := styleDim.Render(fmt.Sprintf("%d/%d", len(m.Results), len(m.Docs)))
+	left := " " + m.searchField()
+	return fitANSI(left, max(1, m.Width-xansi.StringWidth(right))) + right
+}
+
+// searchField is the prompt and the query, without the result counter.
+func (m Model) searchField() string {
 	prompt := "/"
 	if m.Focus == FocusSearch {
 		prompt = styleReverse.Render("/")
 	}
-	query := renderSearchQuery(m.Query, m.Focus == FocusSearch)
-	right := styleDim.Render(fmt.Sprintf("%d/%d", len(m.Results), len(m.Docs)))
-	left := " " + prompt + " " + query
-	return fitANSI(left, max(1, m.Width-xansi.StringWidth(right))) + right
+	return prompt + " " + renderSearchQuery(m.Query, m.Focus == FocusSearch)
 }
 
 func renderSearchQuery(query string, focused bool) string {
@@ -2369,7 +2380,13 @@ func (m Model) modeEntries() []footerEntry {
 		}
 		entries = append(entries, footerEntry{Key: m.footerKey(action), Label: label, Action: action})
 	}
-	return entries
+	// Keys worth knowing that are not actions of their own.
+	return append(entries,
+		footerEntry{Key: "↑↓", Label: "select"},
+		footerEntry{Key: "enter", Label: "open"},
+		footerEntry{Key: "tab", Label: "cycle focus"},
+		footerEntry{Key: "shift+tab", Label: "sidebar focus"},
+	)
 }
 
 func (m Model) editModeEntries() []footerEntry {
@@ -2512,24 +2529,26 @@ const minLogoHeaderHeight = 12
 // logoHeader reports whether the tall header is in use.
 func (m Model) logoHeader() bool { return m.Height >= minLogoHeaderHeight }
 
-// chromeTopRows counts the rows above the pane top border: the header, the
-// blank row that separates the logo block from the panes, and the search row
-// while it is in use.
+// chromeTopRows counts the rows above the pane top border. With the logo header
+// that is the block plus the blank row separating it from the panes; the search
+// input shares the block's third row, so it costs nothing. The compact header
+// still puts the search on a row of its own.
 func (m Model) chromeTopRows() int {
-	rows := 1
 	if m.logoHeader() {
-		rows = headerRows + 1
+		return headerRows + 1
 	}
+	rows := 1
 	if m.searchVisible() {
 		rows++
 	}
 	return rows
 }
 
-// searchRow is the row the search input sits on, directly below the header.
+// searchRow is the row the search input sits on: the third row of the logo
+// header, or the row below the compact one.
 func (m Model) searchRow() int {
 	if m.logoHeader() {
-		return headerRows
+		return headerRows - 1
 	}
 	return 1
 }

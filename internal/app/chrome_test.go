@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -38,11 +39,12 @@ func TestSearchRowShownWhileFocused(t *testing.T) {
 	if !m.searchVisible() {
 		t.Fatal("searchVisible = false while the search has focus")
 	}
-	if m.contentTop() != headerRows+3 {
-		t.Fatalf("contentTop = %d, want %d with the search row shown", m.contentTop(), headerRows+3)
+	// It shares the header's third row, so it costs no extra row.
+	if m.contentTop() != headerRows+2 {
+		t.Fatalf("contentTop = %d, want %d with the search shown", m.contentTop(), headerRows+2)
 	}
 	if !strings.Contains(viewRows(t, m)[m.searchRow()], "/") {
-		t.Fatal("search row missing while focused")
+		t.Fatal("search field missing while focused")
 	}
 }
 
@@ -155,24 +157,11 @@ func TestHeaderLogoIsYellow(t *testing.T) {
 	}
 }
 
-func TestSearchRowSitsBelowTheHeaderBlock(t *testing.T) {
-	m := layoutModel(t, 90, 20)
-	m.Focus = FocusSearch
-	rows := viewRows(t, m)
-	if !strings.Contains(rows[headerRows], "/") {
-		t.Fatalf("row %d = %q, want the search row below the header", headerRows, rows[headerRows])
-	}
-	// header + search + the blank row above the panes
-	if m.contentTop() != headerRows+3 {
-		t.Fatalf("contentTop = %d, want %d", m.contentTop(), headerRows+3)
-	}
-}
-
 func TestClickOnTheSearchRowBelowTheHeaderFocusesSearch(t *testing.T) {
 	m := layoutModel(t, 90, 20)
 	m.Query = "note"
 	m.handleMouse(tea.MouseMsg(tea.MouseEvent{
-		X: 4, Y: headerRows, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
+		X: 4, Y: m.searchRow(), Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
 	}))
 	if m.Focus != FocusSearch {
 		t.Fatalf("Focus = %v, want the search row click to still work", focusName(m.Focus))
@@ -244,5 +233,67 @@ func TestHeaderStatusUsesTheStatusKindColor(t *testing.T) {
 	row := strings.Split(m.View(), "\n")[2]
 	if !strings.Contains(row, statusStyle("success").Render("scanned")) {
 		t.Fatalf("status not rendered with its kind color: %q", row)
+	}
+}
+
+// The search input belongs on the third header row, next to the lightbulb,
+// instead of costing a row of its own below the block.
+func TestSearchSitsOnTheThirdHeaderRow(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	m.Focus = FocusSearch
+	m.Query = "todo"
+	rows := viewRows(t, m)
+	if !strings.Contains(rows[2], "todo") {
+		t.Fatalf("header row 2 = %q, want the search query", rows[2])
+	}
+	if !strings.Contains(rows[2], strings.TrimSpace(splashLogo[2])) {
+		t.Fatalf("header row 2 lost the logo line: %q", rows[2])
+	}
+	if m.searchRow() != 2 {
+		t.Fatalf("searchRow = %d, want 2", m.searchRow())
+	}
+	// It no longer costs an extra row.
+	if m.contentTop() != headerRows+2 {
+		t.Fatalf("contentTop = %d, want %d", m.contentTop(), headerRows+2)
+	}
+	if strings.Contains(rows[3], "todo") {
+		t.Fatalf("row 3 = %q, want the blank separator, not a second search row", rows[3])
+	}
+}
+
+func TestSearchRowStaysSeparateOnAShortTerminal(t *testing.T) {
+	m := layoutModel(t, 90, 9)
+	m.Focus = FocusSearch
+	m.Query = "todo"
+	if m.searchRow() != 1 {
+		t.Fatalf("searchRow = %d, want 1 with the compact header", m.searchRow())
+	}
+	if !strings.Contains(viewRows(t, m)[1], "todo") {
+		t.Fatal("compact layout lost the search row")
+	}
+}
+
+func TestCtrlTTogglesTheSidebar(t *testing.T) {
+	m, _ := projectModel(t)
+	before := m.SidebarVisible
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlT})
+	if m.SidebarVisible == before {
+		t.Fatal("ctrl+t did not toggle the sidebar")
+	}
+	// ctrl+b keeps working where the terminal passes it through.
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlB})
+	if m.SidebarVisible != before {
+		t.Fatal("ctrl+b no longer toggles the sidebar")
+	}
+}
+
+func TestHeaderSearchKeepsTheResultCounter(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	m.Focus = FocusSearch
+	m.Query = "alpha"
+	m.applySearch(false)
+	row := viewRows(t, m)[m.searchRow()]
+	if !strings.Contains(row, fmt.Sprintf("%d/%d", len(m.Results), len(m.Docs))) {
+		t.Fatalf("search row = %q, want the result counter", row)
 	}
 }

@@ -76,8 +76,9 @@ an editor and reshapes the surrounding UI.
 
 - Edit is the default mode: documents opened from the sidebar open for editing.
   Projects without documents still start in the preview.
-- `ctrl+b` toggles the sidebar in every mode, including edit mode where the
-  browse bindings are unavailable.
+- `ctrl+t` toggles the sidebar in every mode, including edit mode where the
+  browse bindings are unavailable. `ctrl+b` stays bound as well, but Ghostty
+  claims it on macOS, so it never reaches the program there.
 - `shift+tab` moves the focus between the content pane and the sidebar in every
   mode, opening the sidebar when it is hidden.
 - Sidebar navigation with `↑` / `↓` and `enter` opens the selected document
@@ -107,8 +108,10 @@ an editor and reshapes the surrounding UI.
   a frame that fits.
 - The sidebar pane is captioned *Files & Folders*.
 - The sidebar is visible on launch instead of hidden.
-- The search row below the header only appears while the search has focus or a
-  query is set, so an idle frame spends that row on content.
+- The search input shares the header's third row while it is in use, with the
+  result counter beside it, so searching costs no row of its own. The status
+  message has that row otherwise. With the compact header the search still gets
+  its own row.
 - Panes are drawn as fully bordered boxes that share their vertical edges, and
   the pane captions sit further inside the top border.
 - The focused pane is highlighted: its border and caption use the accent color.
@@ -120,13 +123,15 @@ an editor and reshapes the surrounding UI.
 - `ctrl+n` creates a new Markdown file. The name is typed into the bottom row,
   the file is created next to the current document, and `.md` is appended when
   the name carries no extension.
-- `ctrl+p` opens the action menu: new file, edit filename, toggle sidebar,
-  toggle edit/preview and go home, followed by the runnable actions of the
-  current mode and a reference list of the keys it cannot run. *delete file*
-  sits apart at the bottom, behind a blank row and in red, because it is the
-  only destructive entry. The menu deliberately does not sit on `ctrl+k`, which
-  deletes to the line end in edit mode.
-- *toggle edit/preview* refuses to leave a buffer with unsaved changes, unlike
+- `ctrl+p` opens the action menu: new file, edit filename, `<> sidebar`,
+  `<> edit/preview`, go home, then the runnable actions of the current mode and
+  a reference list of the keys it cannot run. Labels and keys sit in their own
+  columns. *delete file* sits apart at the bottom, behind a blank row and in
+  red, because it is the only destructive entry; when the menu has to scroll,
+  the title stays pinned at the top and *delete file* at the bottom, so it can
+  never scroll out of sight. The menu deliberately does not sit on `ctrl+k`,
+  which deletes to the line end in edit mode.
+- `<> edit/preview` refuses to leave a buffer with unsaved changes, unlike
   `esc`, which discards it.
 - The menu covers the content pane — the whole screen on the welcome screen —
   with its own dark backdrop, centered, its rows left-aligned with each other.
@@ -198,7 +203,7 @@ arrow key collapses the selection to its start or end.
 | --- | --- |
 | `ctrl+p` | open the action menu |
 | `ctrl+n` | create a new Markdown file |
-| `ctrl+b` | show/hide the sidebar, in every mode |
+| `ctrl+t` | show/hide the sidebar, in every mode (`ctrl+b` too, where the terminal passes it on) |
 | `shift+tab` | move the focus between content pane and sidebar, opening it if hidden |
 | `↑` / `↓` | select a row in the sidebar, the welcome screen or the action menu |
 | `enter` | open the selected document, run the selected action, or expand a directory |

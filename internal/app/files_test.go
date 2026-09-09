@@ -1065,7 +1065,7 @@ func TestActionMenuDeleteFromTheBottomStillConfirms(t *testing.T) {
 func TestActionMenuHasToggleEntries(t *testing.T) {
 	m, _ := projectModel(t)
 	text := menuText(t, m)
-	for _, want := range []string{"toggle sidebar", "toggle edit/preview"} {
+	for _, want := range []string{"<> sidebar", "<> edit/preview"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("menu missing %q:\n%s", want, text)
 		}
@@ -1092,7 +1092,7 @@ func selectMenuLabel(t *testing.T, m Model, label string) Model {
 func TestActionMenuTogglesTheSidebar(t *testing.T) {
 	m, _ := projectModel(t)
 	before := m.SidebarVisible
-	m = selectMenuLabel(t, m, "toggle sidebar")
+	m = selectMenuLabel(t, m, "<> sidebar")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.SidebarVisible == before {
 		t.Fatalf("SidebarVisible still %v", m.SidebarVisible)
@@ -1104,12 +1104,12 @@ func TestActionMenuTogglesEditAndPreview(t *testing.T) {
 	if m.Mode != ModeEdit {
 		t.Fatalf("setup: mode = %v", modeName(m.Mode))
 	}
-	m = selectMenuLabel(t, m, "toggle edit/preview")
+	m = selectMenuLabel(t, m, "<> edit/preview")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Mode != ModePreview {
 		t.Fatalf("Mode = %v, want ModePreview", modeName(m.Mode))
 	}
-	m = selectMenuLabel(t, m, "toggle edit/preview")
+	m = selectMenuLabel(t, m, "<> edit/preview")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Mode != ModeEdit {
 		t.Fatalf("Mode = %v, want ModeEdit again", modeName(m.Mode))
@@ -1123,7 +1123,7 @@ func TestActionMenuToggleRefusesToDropUnsavedChanges(t *testing.T) {
 	if !m.Editor.Dirty {
 		t.Fatal("setup: buffer not dirty")
 	}
-	m = selectMenuLabel(t, m, "toggle edit/preview")
+	m = selectMenuLabel(t, m, "<> edit/preview")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Mode != ModeEdit {
 		t.Fatalf("Mode = %v, want the switch refused", modeName(m.Mode))
@@ -1133,5 +1133,88 @@ func TestActionMenuToggleRefusesToDropUnsavedChanges(t *testing.T) {
 	}
 	if !m.Editor.Dirty {
 		t.Fatal("unsaved changes were dropped")
+	}
+}
+
+// Browse mode had no reference keys at all, so the "keys" section vanished.
+func TestActionMenuShowsKeysSectionInEveryMode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode Mode
+	}{{"edit", ModeEdit}, {"preview", ModePreview}} {
+		m, _ := projectModel(t)
+		m.Mode = tc.mode
+		if tc.mode == ModePreview {
+			m.Focus = FocusPreview
+		}
+		text := menuText(t, m)
+		if !strings.Contains(text, "keys") {
+			t.Fatalf("%s mode: menu has no keys section:\n%s", tc.name, text)
+		}
+		if len(m.menuHints()) == 0 {
+			t.Fatalf("%s mode: no reference keys", tc.name)
+		}
+	}
+}
+
+func TestActionMenuShowsCtrlTForTheSidebar(t *testing.T) {
+	m, _ := projectModel(t)
+	text := menuText(t, m)
+	if !strings.Contains(text, "ctrl+t") {
+		t.Fatalf("menu does not offer ctrl+t:\n%s", text)
+	}
+}
+
+// The label column is as wide as the longest label, so the keys line up in
+// their own column instead of drifting to the far edge.
+func TestActionMenuAlignsKeysInTheirOwnColumn(t *testing.T) {
+	m := layoutModel(t, 120, 34)
+	m.Menu = menuState{Active: true}
+
+	longest := 0
+	for _, row := range m.menuBlock() {
+		longest = max(longest, runewidth.StringWidth(row.Label))
+	}
+	starts := map[int]bool{}
+	for _, row := range m.menuBlock() {
+		if row.Key == "" {
+			continue
+		}
+		for _, r := range menuRows(t, m) {
+			plain := stripANSI(r)
+			if !strings.Contains(plain, row.Label) || !strings.Contains(plain, row.Key) {
+				continue
+			}
+			keyAt := strings.LastIndex(plain, row.Key)
+			end := runewidth.StringWidth(plain[:keyAt]) + runewidth.StringWidth(row.Key)
+			starts[end] = true
+			labelEnd := strings.Index(plain, row.Label) + len(row.Label)
+			if gap := runewidth.StringWidth(plain[labelEnd:keyAt]); gap < menuKeyGap {
+				t.Fatalf("row %q: gap %d < %d", strings.TrimSpace(plain), gap, menuKeyGap)
+			}
+			break
+		}
+	}
+	if len(starts) != 1 {
+		t.Fatalf("keys end at %d different columns, want one shared column: %v", len(starts), starts)
+	}
+	if longest < 15 {
+		t.Fatalf("longest label is %d columns, expected the toggle entry", longest)
+	}
+}
+
+// The destructive entry must never scroll out of sight.
+func TestActionMenuPinsDeleteWhenItScrolls(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	m.Menu = menuState{Active: true, Selected: 0}
+	fitted := fitMenuBlock(m.menuBlock(), 8, 0)
+	if len(fitted) > 8 {
+		t.Fatalf("fitted block has %d rows, want at most 8", len(fitted))
+	}
+	if fitted[0].Kind != menuRowTitle {
+		t.Fatal("title not pinned at the top")
+	}
+	if last := fitted[len(fitted)-1]; !last.Danger {
+		t.Fatalf("last row is %q, want the destructive entry pinned at the bottom", last.Label)
 	}
 }

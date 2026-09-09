@@ -56,6 +56,7 @@ type menuEntry struct {
 	Kind   menuAction
 	Action string // dispatch action, for menuDispatch entries
 	Danger bool   // destructive: rendered apart, in red
+	Gap    bool   // preceded by a blank row
 }
 
 // menuEntries are the app actions, in display order. "go home" is left out on
@@ -67,9 +68,9 @@ func (m Model) menuEntries() []menuEntry {
 	}
 	if !m.Splash {
 		entries = append(entries,
-			menuEntry{Label: "toggle sidebar", Key: "ctrl+b", Kind: menuDispatch, Action: "toggleSidebar"},
-			menuEntry{Label: "toggle edit/preview", Kind: menuDispatch, Action: "toggleMode"},
-			menuEntry{Label: "go home", Kind: menuGoHome},
+			menuEntry{Label: "<> sidebar", Key: "ctrl+t", Kind: menuDispatch, Action: "toggleSidebar"},
+			menuEntry{Label: "<> edit/preview", Kind: menuDispatch, Action: "toggleMode"},
+			menuEntry{Label: "go home", Kind: menuGoHome, Gap: true},
 		)
 	}
 	return entries
@@ -542,7 +543,7 @@ func (m Model) menuBlock() []menuRow {
 		{Kind: menuRowBlank, Entry: -1},
 	}
 	for i, entry := range m.menuActions() {
-		if entry.Danger {
+		if entry.Danger || entry.Gap {
 			rows = append(rows, menuRow{Kind: menuRowBlank, Entry: -1})
 		}
 		rows = append(rows, menuRow{
@@ -572,6 +573,8 @@ func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
 	if height <= 0 {
 		return nil
 	}
+	// The reference section is the first thing to go: it is only material to
+	// read, not to run.
 	for len(rows) > height && rows[len(rows)-1].Kind != menuRowAction {
 		rows = rows[:len(rows)-1]
 	}
@@ -579,22 +582,34 @@ func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
 		return rows
 	}
 
-	// Keep the title pinned and window the rest around the selection.
-	avail := max(1, height-1)
-	rest := rows[1:]
+	// The title stays pinned at the top and the destructive entry at the
+	// bottom, so it can never scroll out of sight; the entries between them
+	// scroll to keep the selection visible.
+	head := rows[:1]
+	tail := []menuRow{}
+	body := rows[1:]
+	if last := body[len(body)-1]; last.Danger {
+		tail = []menuRow{last}
+		body = body[:len(body)-1]
+		if len(body) > 0 && body[len(body)-1].Kind == menuRowBlank {
+			body = body[:len(body)-1]
+		}
+	}
+
+	avail := max(1, height-len(head)-len(tail))
 	sel := 0
-	for i, row := range rest {
+	for i, row := range body {
 		if row.Kind == menuRowAction && row.Entry == selected {
 			sel = i
 		}
 	}
-	start := clamp(sel-avail/2, 0, max(0, len(rest)-avail))
-	end := min(len(rest), start+avail)
+	start := clamp(sel-avail/2, 0, max(0, len(body)-avail))
+	end := min(len(body), start+avail)
 
-	out := make([]menuRow, 0, 1+end-start)
-	out = append(out, rows[0])
-	out = append(out, rest[start:end]...)
-	return out
+	out := make([]menuRow, 0, len(head)+end-start+len(tail))
+	out = append(out, head...)
+	out = append(out, body[start:end]...)
+	return append(out, tail...)
 }
 
 // menuKeyGap separates a label from its key inside a menu row.
@@ -613,15 +628,15 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 		return styleMenuBackdrop.Render(strings.Repeat(" ", width)), true
 	}
 
-	textWidth := 0
+	// The labels share one column and the keys another, so the keys line up
+	// instead of drifting to the far edge of the box.
+	labelWidth, keyWidth := 0, 0
 	for _, line := range block {
-		w := runewidth.StringWidth(line.Label)
-		if line.Key != "" {
-			w += menuKeyGap + runewidth.StringWidth(line.Key)
-		}
-		textWidth = max(textWidth, w)
+		labelWidth = max(labelWidth, runewidth.StringWidth(line.Label))
+		keyWidth = max(keyWidth, runewidth.StringWidth(line.Key))
 	}
-	blockWidth := min(width, textWidth+2*menuPadX+menuSlack)
+	keyColumn := labelWidth + menuKeyGap
+	blockWidth := min(width, menuPadX+keyColumn+keyWidth+menuPadX+menuSlack)
 	left := max(0, (width-blockWidth)/2)
 	top := max(0, (height-len(block))/2)
 
@@ -650,8 +665,8 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 
 	inner := strings.Repeat(" ", menuPadX) + line.Label
 	if line.Key != "" {
-		// The key is pushed to the right edge of the block.
-		pad := blockWidth - menuPadX - runewidth.StringWidth(inner) - runewidth.StringWidth(line.Key)
+		// Right-align the key inside its own column.
+		pad := menuPadX + keyColumn + keyWidth - runewidth.StringWidth(inner) - runewidth.StringWidth(line.Key)
 		if pad < 1 {
 			pad = 1
 		}
