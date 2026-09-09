@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.2 - 2026-09-09
+
 ### Added
 
 - Added word-wise and line-wise caret motion in edit mode (`opt+←→`, `cmd+←→`/`ctrl+a`/`ctrl+e`).
@@ -33,6 +35,7 @@ All notable changes to this project will be documented in this file.
 - Edit is now the default mode: glowed starts in the editor and documents opened from the sidebar open for editing; projects without documents still start in the preview.
 - Saving with `ctrl+s` now keeps the buffer open instead of switching to the preview.
 - `esc` in edit mode now clears an active selection first and only leaves edit mode when nothing is selected.
+
 
 ## v0.2.2 - 2026-05-18
 
