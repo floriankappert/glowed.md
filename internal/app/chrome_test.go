@@ -159,3 +159,14 @@ func TestFrameFillsEveryTerminalHeight(t *testing.T) {
 		}
 	}
 }
+
+// The project is branded glowed.md; the command stays "glowed".
+func TestHeaderAndWelcomeShowTheProjectName(t *testing.T) {
+	if AppName != "glowed.md" {
+		t.Fatalf("AppName = %q, want glowed.md", AppName)
+	}
+	m := layoutModel(t, 90, 20)
+	if !strings.Contains(viewRows(t, m)[0], AppName) {
+		t.Fatalf("header = %q, want it to carry %q", viewRows(t, m)[0], AppName)
+	}
+}

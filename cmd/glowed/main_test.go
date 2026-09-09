@@ -15,7 +15,7 @@ func TestCLIHelpSmoke(t *testing.T) {
 		t.Fatalf("go run . --help failed: %v\n%s", err, out)
 	}
 	text := string(out)
-	for _, want := range []string{"glowed - Ghostty terminal Markdown browser/editor", "Usage:", "glowed [project-root]", "glowed --init-ignore [project-root]"} {
+	for _, want := range []string{"glowed.md - Ghostty terminal Markdown browser/editor", "Usage:", "glowed [project-root]", "glowed --init-ignore [project-root]"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("help output missing %q:\n%s", want, text)
 		}
@@ -28,7 +28,7 @@ func TestCLIVersionSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go run . --version failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "glowed dev") {
+	if !strings.Contains(string(out), "glowed.md dev") {
 		t.Fatalf("version output missing expected value:\n%s", out)
 	}
 }

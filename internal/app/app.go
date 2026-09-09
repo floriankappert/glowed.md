@@ -686,6 +686,11 @@ func (m *Model) handleEditorKey(msg tea.KeyMsg) tea.Cmd {
 	default:
 		if text, ok := editorInputFromKey(msg); ok {
 			m.replaceSelection(text)
+		} else if msg.Alt {
+			// On layouts where brackets and friends are Option-composed, Ghostty's
+			// macos-option-as-alt = true turns them into alt combinations that no
+			// longer carry the composed rune. Say so instead of dropping silently.
+			m.setStatus(key+" unbound — for [ ] { } set macos-option-as-alt = left in Ghostty", "warn")
 		}
 	}
 	m.ensureEditorVisible()
@@ -2126,7 +2131,7 @@ func (m Model) renderHeader() string {
 	if d := m.currentDoc(); d != nil {
 		doc = d.Rel
 	}
-	title := fmt.Sprintf("%s %s%s %s", styleTitle.Render("glowed"), mode, dirty, styleDim.Render(focusName(m.Focus)))
+	title := fmt.Sprintf("%s %s%s %s", styleTitle.Render(AppName), mode, dirty, styleDim.Render(focusName(m.Focus)))
 
 	if !m.logoHeader() {
 		return fitANSI(title+" "+styleDim.Render(doc), m.Width)

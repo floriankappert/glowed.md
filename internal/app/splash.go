@@ -10,6 +10,9 @@ import (
 	"github.com/khw1031/glowed/internal/docs"
 )
 
+// AppName is the project's display name. The command itself stays "glowed".
+const AppName = "glowed.md"
+
 // Version is the build version shown on the welcome screen. cmd/glowed sets it
 // from the value stamped into the binary via ldflags.
 var Version = "dev"
@@ -84,7 +87,7 @@ func (m *Model) openWelcomeSelection() {
 // project root, with the recent documents underneath.
 func (m Model) renderSplash() string {
 	info := []string{
-		styleTitle.Render("glowed") + " " + styleDim.Render(Version),
+		styleTitle.Render(AppName) + " " + styleDim.Render(Version),
 		styleDim.Render("Markdown browser/editor · Ghostty-first"),
 		styleDim.Render(shortenHome(m.Root)),
 	}

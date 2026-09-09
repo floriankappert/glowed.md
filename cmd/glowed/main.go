@@ -21,7 +21,7 @@ var version = "dev"
 func main() {
 	app.Version = version
 	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version" || os.Args[1] == "version") {
-		fmt.Println("glowed " + version)
+		fmt.Println(app.AppName + " " + version)
 		return
 	}
 	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help") {
@@ -59,7 +59,7 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Println("glowed - Ghostty terminal Markdown browser/editor")
+	fmt.Println(app.AppName + " - Ghostty terminal Markdown browser/editor")
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  glowed [project-root]")

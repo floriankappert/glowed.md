@@ -38,17 +38,29 @@ type menuState struct {
 	Selected int
 }
 
+// menuAction is what an action-menu entry does. Most open a prompt, one goes
+// back to the welcome screen.
+type menuAction int
+
+const (
+	menuNewFile menuAction = iota
+	menuRename
+	menuDelete
+	menuGoHome
+)
+
 type menuEntry struct {
 	Label string
-	Kind  promptKind
+	Kind  menuAction
 }
 
-// menuEntries are the file actions, in display order.
+// menuEntries are the menu actions, in display order.
 func menuEntries() []menuEntry {
 	return []menuEntry{
-		{Label: "new file", Kind: promptNewFile},
-		{Label: "edit filename", Kind: promptRename},
-		{Label: "delete file", Kind: promptDeleteConfirm},
+		{Label: "new file", Kind: menuNewFile},
+		{Label: "edit filename", Kind: menuRename},
+		{Label: "delete file", Kind: menuDelete},
+		{Label: "go home", Kind: menuGoHome},
 	}
 }
 
@@ -336,14 +348,31 @@ func (m *Model) handleMenuKey(key string) {
 		m.Menu.Selected = clamp(m.Menu.Selected+1, 0, len(entries)-1)
 	case "enter":
 		switch entries[clamp(m.Menu.Selected, 0, len(entries)-1)].Kind {
-		case promptNewFile:
+		case menuNewFile:
 			m.openNewFilePrompt()
-		case promptRename:
+		case menuRename:
 			m.openRenamePrompt()
-		case promptDeleteConfirm:
+		case menuDelete:
 			m.openDeletePrompt()
+		case menuGoHome:
+			m.goHome()
 		}
 	}
+}
+
+// goHome returns to the welcome screen, which then owns the keyboard again
+// until a document is picked.
+func (m *Model) goHome() {
+	if m.Editor.Dirty {
+		m.setStatus("unsaved changes in "+filepath.Base(m.Editor.File)+" — ctrl+s to save, esc to discard", "warn")
+		return
+	}
+	m.Menu.Active = false
+	m.closePrompt()
+	m.clearEditorSelection()
+	m.Splash = true
+	m.SplashSelected = 0
+	m.setStatus("home — ↑↓ select, enter open", "info")
 }
 
 // menuBackdropColor is the 256-color index the menu paints the content pane with.

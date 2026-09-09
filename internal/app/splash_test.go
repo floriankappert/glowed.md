@@ -217,3 +217,22 @@ func TestWelcomeRecentFilesIsAHeading(t *testing.T) {
 		t.Fatal("\"Recent files\" is not rendered as a heading")
 	}
 }
+
+// The welcome list is ordered by modification time, so a save reorders it.
+func TestWelcomeReordersAfterAFileIsUpdated(t *testing.T) {
+	m := welcomeModel(t, "first.md", "second.md")
+	if got := m.recentDocs()[0].Rel; got != "second.md" {
+		t.Fatalf("recentDocs[0] = %q, want second.md", got)
+	}
+	touched := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(filepath.Join(m.Root, "first.md"), touched, touched); err != nil {
+		t.Fatal(err)
+	}
+	m.scan("manual")
+	if got := m.recentDocs()[0].Rel; got != "first.md" {
+		t.Fatalf("recentDocs[0] = %q after touching first.md, want first.md", got)
+	}
+	if got := stripANSI(m.View()); strings.Index(got, "first.md") > strings.Index(got, "second.md") {
+		t.Fatalf("welcome screen order does not follow the modification time:\n%s", got)
+	}
+}

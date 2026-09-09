@@ -472,17 +472,19 @@ func TestActionMenuBlockIsCenteredWithLeftAlignedText(t *testing.T) {
 	titleRow, titleCol := labelRow("actions")
 	_, newCol := labelRow("new file")
 	_, editCol := labelRow("edit filename")
-	deleteRow, deleteCol := labelRow("delete file")
+	_, deleteCol := labelRow("delete file")
+	entries := menuEntries()
+	lastRow, lastCol := labelRow(entries[len(entries)-1].Label)
 
-	if titleCol != newCol || newCol != editCol || editCol != deleteCol {
-		t.Fatalf("entries are not left-aligned on one column: %d/%d/%d/%d", titleCol, newCol, editCol, deleteCol)
+	if titleCol != newCol || newCol != editCol || editCol != deleteCol || deleteCol != lastCol {
+		t.Fatalf("entries are not left-aligned on one column: %d/%d/%d/%d/%d", titleCol, newCol, editCol, deleteCol, lastCol)
 	}
 	// Left-aligned inside a block that is itself centered in the pane.
 	if titleCol <= 2 {
 		t.Fatalf("block starts at column %d, want it centered in the pane", titleCol)
 	}
 	above := titleRow
-	below := len(rows) - 1 - deleteRow
+	below := len(rows) - 1 - lastRow
 	if diff := above - below; diff > 1 || diff < -1 {
 		t.Fatalf("block not centered vertically: %d rows above, %d below", above, below)
 	}
@@ -520,5 +522,79 @@ func TestActionMenuLeavesTheSidebarVisible(t *testing.T) {
 	view := stripANSI(m.View())
 	if !strings.Contains(view, "alpha.md") {
 		t.Fatalf("sidebar hidden behind the menu:\n%s", view)
+	}
+}
+
+// --- go home ---
+
+func TestActionMenuHasGoHome(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	if !strings.Contains(stripANSI(m.View()), "go home") {
+		t.Fatalf("action menu has no go home entry:\n%s", stripANSI(m.View()))
+	}
+}
+
+func TestGoHomeShowsTheWelcomeScreen(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for i := 0; i < len(menuEntries()); i++ {
+		if menuEntries()[m.Menu.Selected].Kind == menuGoHome {
+			break
+		}
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.Splash {
+		t.Fatal("go home did not show the welcome screen")
+	}
+	if m.Menu.Active {
+		t.Fatal("menu stayed open")
+	}
+	if view := stripANSI(m.View()); !strings.Contains(view, "Recent files") {
+		t.Fatalf("welcome screen not rendered:\n%s", view)
+	}
+}
+
+func TestGoHomeRefusesUnsavedChanges(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
+	m.Menu = menuState{Active: true, Selected: goHomeIndex(t)}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Splash {
+		t.Fatal("go home dropped an unsaved buffer")
+	}
+	if m.StatusKind != "warn" {
+		t.Fatalf("StatusKind = %q, want warn: %q", m.StatusKind, m.Status)
+	}
+}
+
+func goHomeIndex(t *testing.T) int {
+	t.Helper()
+	for i, entry := range menuEntries() {
+		if entry.Kind == menuGoHome {
+			return i
+		}
+	}
+	t.Fatal("no go home entry")
+	return -1
+}
+
+// Leaving to the welcome screen and coming back must land on a real document.
+func TestGoHomeThenEnterReopensADocument(t *testing.T) {
+	m, _ := projectModel(t)
+	m.Menu = menuState{Active: true, Selected: goHomeIndex(t)}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.Splash {
+		t.Fatal("go home did not show the welcome screen")
+	}
+	// The welcome screen is gated in update, not in handleKey.
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Splash {
+		t.Fatal("still on the welcome screen")
+	}
+	if m.Mode != ModeEdit || m.Editor.File == "" {
+		t.Fatalf("mode=%v file=%q, want a document open for editing", modeName(m.Mode), m.Editor.File)
 	}
 }

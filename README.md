@@ -1,10 +1,11 @@
-# glowed
+# glowed.md
 
-**glowed** is a Ghostty-oriented terminal TUI Markdown browser/editor.
+**glowed.md** is a Ghostty-oriented terminal TUI Markdown browser/editor. The
+command it installs is `glowed`.
 
 It treats the directory where it is launched as a project root, scans Markdown files, lets you search and preview them, edit raw Markdown, copy app-managed selections with path metadata, and open an external LLM CLI session with the current document context.
 
-> This repository is a fork of [khw1031/glowed](https://github.com/khw1031/glowed) that turns the MVP's raw edit mode into a usable editor. See
+> This repository is a fork of [khw1031/glowed](https://github.com/khw1031/glowed) that turns the MVP's raw edit mode into a usable editor. It is published as **glowed.md**; the command, the Homebrew formula and the config paths keep the name `glowed`. See
 > [Differences from the upstream project](#differences-from-the-upstream-project) for the complete list.
 
 Language versions: [한국어](README.ko.md) · [日本語](README.jp.md) · [中文](README.zh.md)
@@ -75,10 +76,10 @@ below is additional to upstream — no upstream feature was removed.
   files* heading. `↑` / `↓` select and `enter` opens one in the editor. It stays
   up until a file is picked, and is skipped when a file is passed on the command
   line.
-- The header above the panes carries the same lightbulb mark, with the name and
-  mode beside it and the current file underneath. Below a terminal height of 12
-  rows it collapses into the single row it used to be, so short splits still
-  render a frame that fits.
+- The header above the panes carries the same lightbulb mark, with the name
+  (`glowed.md`) and mode beside it and the current file underneath. Below a
+  terminal height of 12 rows it collapses into the single row it used to be, so
+  short splits still render a frame that fits.
 - The sidebar is visible on launch instead of hidden.
 - The search row below the header only appears while the search has focus or a
   query is set, so an idle frame spends that row on content.
@@ -138,8 +139,12 @@ below is additional to upstream — no upstream feature was removed.
 
 ### Distribution
 
-- Released through the `floriankappert/tap` Homebrew tap, with the upstream tap
-  left untouched.
+- Published as **glowed.md** at
+  [floriankappert/glowed.md](https://github.com/floriankappert/glowed.md). The
+  installed command stays `glowed`, so nothing about invoking it changes.
+- Released through the `floriankappert/tap` Homebrew tap
+  ([floriankappert/homebrew-tap](https://github.com/floriankappert/homebrew-tap)),
+  with the upstream tap left untouched.
 - Version numbers carry the `-floriankappert.N` suffix so a fork build is never
   mistaken for an upstream release.
 
@@ -168,8 +173,8 @@ below is additional to upstream — no upstream feature was removed.
 ### From source
 
 ```bash
-git clone https://github.com/floriankappert/glowed.git
-cd glowed
+git clone https://github.com/floriankappert/glowed.md.git
+cd glowed.md
 go build -o ./bin/glowed ./cmd/glowed
 ./bin/glowed
 ```
@@ -337,6 +342,9 @@ set.
 Select-all deliberately does not sit on `ctrl+a`, because Ghostty sends exactly
 that for `cmd+←` — the two are indistinguishable to the program.
 
+If `macos-option-as-alt = true` costs you the bracket keys on a non-US layout,
+see [the FAQ](#faq).
+
 
 
 `cmd+z` / `cmd+shift+z` stay with Ghostty's own undo/redo; use `ctrl+z` and
@@ -394,6 +402,44 @@ Supported intent:
 - Apply small command-specific launch defaults for known commands such as Claude/Codex when useful
 - Open a Ghostty split when possible
 - Include current file path, relative path, mode, optional selection, and optional raw Markdown context
+
+## FAQ
+
+### I cannot type `[`, `]`, `{`, `}`, `@`, `|` or `~` in Ghostty
+
+This is Ghostty's `macos-option-as-alt` setting, not a glowed bug. On layouts
+where those characters are Option-composed — German, Nordic and many others —
+`macos-option-as-alt = true` turns Option into Alt, so the keystroke arrives as
+`alt+5` rather than as the composed `[`. The composed character is never
+produced, so no program can see it.
+
+Set the option to one side instead of both:
+
+```
+macos-option-as-alt = left
+```
+
+Now the right Option composes characters as macOS normally does (`⌥5` → `[`),
+while the left Option is still Alt for glowed's word motions (`opt+←→`),
+`opt+c` and `opt+a`. Use `right` if you prefer the sides swapped.
+
+On a US layout `macos-option-as-alt = true` is harmless, because nothing you
+need is Option-composed.
+
+When an alt combination arrives that glowed has no binding for, it says so in
+the status line instead of dropping the key silently.
+
+### Which characters are affected?
+
+Anything the layout puts behind Option. On a German Mac layout that is at least
+`[ ] { } @ | \ ~ €` — which includes the pipe used for Markdown tables, so it
+is worth fixing before writing tables.
+
+### Why is copy `opt+c` and not `cmd+c`?
+
+macOS routes `cmd+c` to Ghostty's *Edit > Copy* menu item before the terminal
+sees it, and a menu shortcut wins over any `keybind` entry. The same applies to
+`cmd+a`. See [Edit mode](#edit-mode).
 
 ## Important limitations
 

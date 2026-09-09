@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.4 - 2026-09-09
+
+### Added
+
+- Added a "go home" entry to the action menu (`ctrl+p`), which returns to the welcome screen. It refuses to run while the buffer has unsaved changes.
+
+### Changed
+
+- The project is now published as **glowed.md** at `floriankappert/glowed.md`, and the welcome screen, header, `--help` and `--version` carry that name. The installed command, the Homebrew formula and the config paths keep the name `glowed`, so nothing about invoking or configuring it changes.
+- The Homebrew tap repository is now named `homebrew-tap`, which is the name `brew tap floriankappert/tap` resolves to directly instead of relying on a GitHub rename redirect.
+
+### Fixed
+
+- An alt combination that has no binding now says so in the status line instead of being dropped silently. On layouts where brackets are Option-composed, Ghostty's `macos-option-as-alt = true` turns `[` into `alt+5`, which made the key look broken; the new README FAQ explains the `macos-option-as-alt = left` fix.
+
+### Documentation
+
+- Added a FAQ to the README covering the Option-composed characters (`[ ] { } @ | \ ~ €`), why copy is `opt+c`, and which Ghostty setting to change.
+
+
 ## v0.2.2-floriankappert.3 - 2026-09-09
 
 ### Added
