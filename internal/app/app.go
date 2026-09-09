@@ -219,12 +219,12 @@ func NewWithInitial(root string, initialPath string) Model {
 	if initialPath != "" {
 		m.selectInitialDocument(initialPath)
 	}
-	// Edit is the default mode; fall back to preview when there is nothing to
-	// edit, for instance in an empty project. The startup notice about the scan
-	// and polling refresh is more useful here than the edit banner.
+	// Documents open in the mode the defaults ask for; an empty project has
+	// nothing to open. The startup notice about the scan and polling refresh is
+	// more useful here than the mode banner.
 	if m.currentDoc() != nil && m.Cfg.Defaults.EditMode {
 		status, kind := m.Status, m.StatusKind
-		m.enterEditMode()
+		m.openDocument()
 		if status != "" {
 			m.Status, m.StatusKind = status, kind
 		}
@@ -776,20 +776,22 @@ func (m *Model) handleEditSidebarKey(key string) {
 			m.toggleSidebarDirectory()
 			return
 		}
-		m.openSidebarSelectionForEditing()
+		m.openSidebarSelection()
 		return
 	}
 	m.handleSidebarNavigation(key)
 }
 
 // openSidebarSelectionForEditing opens the selected document in edit mode.
-func (m *Model) openSidebarSelectionForEditing() {
+// openSidebarSelection opens the highlighted sidebar document in the mode the
+// defaults ask for.
+func (m *Model) openSidebarSelection() {
 	row := m.currentSidebarRow()
 	if row == nil || row.Kind != sidebarRowDocument {
 		return
 	}
 	m.setSelection(row.DocIndex)
-	m.enterEditMode()
+	m.openDocument()
 }
 
 func (m *Model) handleSourceNavigation(key string) {
@@ -951,7 +953,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			} else if editing {
 				// Edit is the default mode, so clicking a document opens it for
 				// editing instead of dropping back into the preview.
-				m.openSidebarSelectionForEditing()
+				m.openSidebarSelection()
 			}
 		}
 		return nil
@@ -1112,6 +1114,36 @@ func (m *Model) reloadPreview() {
 	}
 	m.PreviewLines = strings.Split(strings.ReplaceAll(rendered, "\r\n", "\n"), "\n")
 	m.PreviewScroll = clamp(m.PreviewScroll, 0, max(0, len(m.PreviewLines)-m.previewBodyHeight()))
+}
+
+// openDocument opens the current selection the way the startup defaults ask
+// for: the editor when edit mode is the default, the preview otherwise. Every
+// path that opens a document on the user's behalf goes through here; an
+// explicit request such as the "edit" action bypasses it on purpose.
+func (m *Model) openDocument() {
+	if m.Cfg.Defaults.EditMode {
+		m.enterEditMode()
+		return
+	}
+	m.showPreview()
+}
+
+// showPreview switches to the preview of the current document.
+func (m *Model) showPreview() {
+	doc := m.currentDoc()
+	if doc == nil {
+		m.setStatus("no document selected", "warn")
+		return
+	}
+	if m.Editor.Dirty && m.Editor.File != "" && !m.pathsMatch(m.Editor.File, doc.Abs) {
+		m.setStatus("unsaved changes in "+filepath.Base(m.Editor.File)+" — ctrl+s to save, esc to discard", "warn")
+		return
+	}
+	m.clearEditorSelection()
+	m.Mode = ModePreview
+	m.Focus = FocusPreview
+	m.reloadPreview()
+	m.setStatus("opened "+doc.Rel, "success")
 }
 
 func (m *Model) enterEditMode() {

@@ -74,7 +74,12 @@ an editor and reshapes the surrounding UI.
 
 ### Modes and navigation
 
-- Edit is the default mode: documents opened from the sidebar open for editing.
+- Edit is the default mode, and *configuration → defaults → edit mode as
+  default* turns it off. The setting governs every way a document opens on your
+  behalf: at launch, from the welcome screen, from the sidebar, from a document
+  match in the action menu, and after a delete. An explicit request wins over
+  it — the `edit` action and `<> edit/preview` still enter the editor, and a
+  newly created file always does, because an empty file has nothing to preview.
   Projects without documents still start in the preview.
 - `ctrl+t` toggles the sidebar in every mode, including edit mode where the
   browse bindings are unavailable. `ctrl+b` stays bound as well, but Ghostty

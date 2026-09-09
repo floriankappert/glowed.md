@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.13 - 2026-09-09
+
+### Fixed
+
+- The *edit mode as default* setting only governed the document passed on the command line. Every other way of opening one — the welcome screen, the sidebar, a document match in the action menu, the document that follows a delete — called into the editor regardless, so switching the default off and restarting still landed you in edit mode. All of them now go through one place that honours the setting.
+
+### Changed
+
+- An explicit request still wins over the default: the `edit` action and `<> edit/preview` enter the editor, a newly created file always opens there because an empty file has nothing to preview, and renaming keeps you in the mode you were in.
+
+
 ## v0.2.2-floriankappert.12 - 2026-09-09
 
 ### Changed

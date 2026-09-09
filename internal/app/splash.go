@@ -108,7 +108,7 @@ func (m *Model) openWelcomeSelection() {
 		return
 	}
 	m.Splash = false
-	m.enterEditMode()
+	m.openDocument()
 }
 
 // renderSplash draws the welcome screen: the lightbulb next to the version and

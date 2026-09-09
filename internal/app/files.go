@@ -379,7 +379,9 @@ func (m *Model) createFileFromPrompt() {
 	}
 
 	m.closePrompt()
-	m.openPathForEditing(target, "created "+m.relToRoot(target))
+	// A new file is empty, so there is nothing to preview: it always opens in
+	// the editor, whatever the default says.
+	m.openPathForEditing(target, "created "+m.relToRoot(target), true)
 }
 
 func (m *Model) renameFileFromPrompt() {
@@ -414,7 +416,8 @@ func (m *Model) renameFileFromPrompt() {
 	}
 
 	m.closePrompt()
-	m.openPathForEditing(target, "renamed to "+m.relToRoot(target))
+	// Renaming keeps you where you were.
+	m.openPathForEditing(target, "renamed to "+m.relToRoot(target), m.Mode == ModeEdit)
 }
 
 func (m *Model) deleteCurrentFile() {
@@ -454,15 +457,16 @@ func (m *Model) deleteCurrentFile() {
 	}
 	m.rebuildSidebarRows()
 	if doc := m.currentDoc(); doc != nil {
-		m.enterEditMode()
+		m.openDocument()
 	} else {
 		m.reloadPreview()
 	}
 	m.setStatus(fmt.Sprintf("deleted %s (backup %s)", rel, filepath.Base(backup)), "success")
 }
 
-// openPathForEditing rescans, selects path and opens it in the editor.
-func (m *Model) openPathForEditing(path, message string) {
+// openPathForEditing rescans, selects path and opens it, in the editor when
+// forceEdit is set and otherwise in the mode the defaults ask for.
+func (m *Model) openPathForEditing(path, message string, forceEdit bool) {
 	if err := m.scanAndApply(true); err != nil {
 		m.setStatus(err.Error(), "error")
 		return
@@ -472,9 +476,13 @@ func (m *Model) openPathForEditing(path, message string) {
 		m.setStatus(message+", but it is not in the scan results", "warn")
 		return
 	}
-	// Opening a document in the editor is what leaves the welcome screen.
+	// Opening a document is what leaves the welcome screen.
 	m.Splash = false
-	m.enterEditMode()
+	if forceEdit {
+		m.enterEditMode()
+	} else {
+		m.openDocument()
+	}
 	m.setStatus(message, "success")
 }
 
@@ -632,7 +640,7 @@ func (m *Model) openDocFromMenu(path string) {
 	}
 	m.Menu = menuState{}
 	m.Splash = false
-	m.enterEditMode()
+	m.openDocument()
 }
 
 // goHome returns to the welcome screen, which then owns the keyboard again
