@@ -216,7 +216,8 @@ an editor and reshapes the surrounding UI.
 - Obsidian Sync itself runs inside the Obsidian app and has no CLI or API, so
   glowed cannot drive it. What it does instead is behave as a well-mannered
   citizen of the vault: plain files, no stray backups, and Obsidian's own sync
-  picks the changes up.
+  picks the changes up — while Obsidian is running, see
+  [the FAQ](#does-obsidian-have-to-be-running).
 
 ### Defaults
 
@@ -330,6 +331,34 @@ pipe used for Markdown tables, so it is worth fixing before writing tables.
 
 When an alt combination arrives that glowed.md has no binding for, it says so in
 the status line instead of dropping the key silently.
+
+### Does Obsidian have to be running?
+
+For Obsidian Sync to pick up what glowed saved: yes. Sync is part of the
+Obsidian application, and the application installs no background service — no
+LaunchAgent, no daemon, nothing registered with `launchctl`. Nothing watches the
+vault while Obsidian is closed.
+
+Obsidian's own command line tool, which ships inside the app bundle at
+`/Applications/Obsidian.app/Contents/MacOS/obsidian-cli`, says the same thing
+when the app is not running:
+
+```
+The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.
+```
+
+Edits made while Obsidian is closed are not lost — they sit in the vault as
+plain files and Obsidian reconciles them the next time it opens the vault. The
+one thing to watch is editing the same note in glowed while Obsidian is closed
+*and* on another device: that is a real conflict, and Obsidian only notices it
+on its next start. With Obsidian running, that window is small.
+
+So if you work on a vault through glowed, leave Obsidian running. It needs no
+window; the process is enough.
+
+*open in Obsidian* is unaffected: it hands the `obsidian://` URI to the desktop,
+which starts the app if it is not running. That is why it does not use the
+bundled CLI, which requires a running app.
 
 ### Why is copy `opt+c` and not `cmd+c`?
 
