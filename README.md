@@ -7,8 +7,8 @@ originally created by **[@khw1031](https://github.com/khw1031)**
 
 glowed.md is a fork of **[khw1031/glowed](https://github.com/khw1031/glowed)**.
 The original is the base: it scans a project root for Markdown files, searches
-and previews them, edits raw Markdown, copies selections with path metadata, and
-launches an external LLM CLI with the current document as context.
+and previews them, edits raw Markdown, and copies selections with path
+metadata.
 
 > **This README only covers what is different here.** For what glowed does, how
 > to use it and how to configure it, read the upstream documentation:
@@ -199,13 +199,11 @@ an editor and reshapes the surrounding UI.
 
 ### Defaults
 
-- The external LLM session is off by default (`llm.enabled`), because the
-  launcher needs a terminal and a CLI that may not be installed. While it is
-  off, the action menu leaves the entry out instead of offering one that only
-  warns when run. This fork's own `.glowed.json` sets it to `false` as well.
 - Upstream's *source* action is labelled *copy exact markdown* in the menu: it
   enters a mode where a selection yields the original Markdown with its path
   metadata rather than the rendered preview text.
+- Actions the config switches off are left out of the action menu rather than
+  offered as entries that only warn when run.
 
 ### Robustness
 
