@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.14 - 2026-09-09
+
+### Added
+
+- `↑` on the first entry of the action menu hands the keyboard back to the filter, and `↓` moves it into the list. Typing anywhere returns to the filter. While the filter has focus no entry is highlighted and the caret sits in the filter row; `enter` still runs the first match.
+
+### Changed
+
+- The external LLM session is off by default (`llm.enabled`), because the launcher needs a terminal and a CLI that may not be installed. While it is off, the action menu leaves the entry out rather than offering one that only warns when run. This fork's own `.glowed.json` sets it to `false` as well.
+- Upstream's *source* action is labelled *copy exact markdown* in the menu. "source" said nothing about what the mode does: a selection there yields the original Markdown with its path metadata instead of the rendered preview text.
+
+
 ## v0.2.2-floriankappert.13 - 2026-09-09
 
 ### Fixed

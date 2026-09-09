@@ -43,7 +43,7 @@
     "enabled": true
   },
   "llm": {
-    "enabled": true,
+    "enabled": false,
     "command": "pi",
     "terminalCommand": "ghostty",
     "terminalApp": "Ghostty",

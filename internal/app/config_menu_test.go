@@ -436,3 +436,53 @@ func TestExplicitFileWithEditDefaultOffShowsThePreview(t *testing.T) {
 		t.Fatalf("the document is not rendered:\n%s", view)
 	}
 }
+
+// --- llm off by default, clearer source label ---
+
+func TestLLMIsDisabledByDefault(t *testing.T) {
+	if config.Default().LLM.Enabled {
+		t.Fatal("LLM.Enabled = true, want it off by default")
+	}
+}
+
+// A disabled feature must not sit in the menu as an entry that only warns.
+func TestActionMenuHidesTheLLMEntryWhileItIsDisabled(t *testing.T) {
+	m := configModel(t)
+	m.Mode = ModePreview
+	m.Focus = FocusPreview
+	if m.Cfg.LLM.Enabled {
+		t.Fatal("setup: llm is enabled")
+	}
+	if text := menuText(t, m); strings.Contains(text, "llm") {
+		t.Fatalf("menu still offers llm:\n%s", text)
+	}
+	for _, entry := range m.menuActions() {
+		if entry.Action == "openLLM" {
+			t.Fatal("openLLM is still runnable from the menu")
+		}
+	}
+}
+
+func TestActionMenuShowsTheLLMEntryWhenEnabled(t *testing.T) {
+	m := configModel(t)
+	m.Mode = ModePreview
+	m.Focus = FocusPreview
+	m.Cfg.LLM.Enabled = true
+	if text := menuText(t, m); !strings.Contains(text, "llm") {
+		t.Fatalf("menu does not offer llm although it is enabled:\n%s", text)
+	}
+}
+
+// "source" said nothing about what the mode does.
+func TestSourceActionHasATellingLabel(t *testing.T) {
+	label := labelForAction("sourceSelect")
+	if label == "source" || label == "" {
+		t.Fatalf("labelForAction(sourceSelect) = %q, want something that explains it", label)
+	}
+	m := configModel(t)
+	m.Mode = ModePreview
+	m.Focus = FocusPreview
+	if text := menuText(t, m); !strings.Contains(text, label) {
+		t.Fatalf("menu does not show %q:\n%s", label, text)
+	}
+}

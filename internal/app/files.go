@@ -33,6 +33,10 @@ type promptState struct {
 	Target string // absolute path the prompt acts on, for rename and delete
 }
 
+// menuFilterFocus is the Selected value that means the filter row has the
+// keyboard: no entry is highlighted, and up cannot go any further.
+const menuFilterFocus = -1
+
 // menuState is the action menu opened with ctrl+p.
 type menuState struct {
 	Active   bool
@@ -512,7 +516,7 @@ func (m *Model) toggleActionMenu() {
 		m.Menu.Active = false
 		return
 	}
-	m.Menu = menuState{Active: true}
+	m.Menu = menuState{Active: true, Selected: menuFilterFocus}
 	m.setStatus("actions — type to filter, ↑↓ select, enter run, esc close", "info")
 }
 
@@ -530,12 +534,15 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		// way back out of a submenu.
 		if m.Menu.Query != "" {
 			m.Menu.Query = ""
-			m.Menu.Selected = 0
+			m.Menu.Selected = menuFilterFocus
 			return nil
 		}
 		if len(m.Menu.Path) > 0 {
 			m.Menu.Path = m.Menu.Path[:len(m.Menu.Path)-1]
 			m.Menu.Selected = 0
+			if m.menuShowsFilter() {
+				m.Menu.Selected = menuFilterFocus
+			}
 			if level := m.menuLevel(); level != "" {
 				m.setStatus(level+" — ↑↓ select, enter apply, esc back", "info")
 			} else {
@@ -547,16 +554,25 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		m.setStatus("actions closed", "info")
 		return nil
 	case "up":
+		// Above the first entry sits the filter, where the keyboard came from.
+		if m.Menu.Selected <= 0 && m.menuShowsFilter() {
+			m.Menu.Selected = menuFilterFocus
+			return nil
+		}
 		m.Menu.Selected = clamp(m.Menu.Selected-1, 0, max(0, len(entries)-1))
 		return nil
 	case "down":
+		if m.Menu.Selected == menuFilterFocus {
+			m.Menu.Selected = 0
+			return nil
+		}
 		m.Menu.Selected = clamp(m.Menu.Selected+1, 0, max(0, len(entries)-1))
 		return nil
 	case "backspace":
 		runes := []rune(m.Menu.Query)
 		if len(runes) > 0 {
 			m.Menu.Query = string(runes[:len(runes)-1])
-			m.Menu.Selected = 0
+			m.Menu.Selected = menuFilterFocus
 		}
 		return nil
 	case "enter":
@@ -564,7 +580,7 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 			m.setStatus("no action matches "+m.Menu.Query, "warn")
 			return nil
 		}
-		entry := entries[clamp(m.Menu.Selected, 0, len(entries)-1)]
+		entry := entries[clamp(max(0, m.Menu.Selected), 0, len(entries)-1)]
 		switch entry.Kind {
 		case menuNewFile:
 			m.openNewFilePrompt()
@@ -611,10 +627,10 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 	// navigation key here.
 	if msg.Type == tea.KeyRunes && !msg.Alt {
 		m.Menu.Query += string(msg.Runes)
-		m.Menu.Selected = 0
+		m.Menu.Selected = menuFilterFocus
 	} else if msg.Type == tea.KeySpace {
 		m.Menu.Query += " "
-		m.Menu.Selected = 0
+		m.Menu.Selected = menuFilterFocus
 	}
 	return nil
 }
@@ -882,9 +898,13 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 		style = styleMenuHint
 	}
 	if line.Kind == menuRowFilter {
-		// The filter owns the keyboard, so it carries the caret.
+		// The caret shows whether the keyboard is on the filter or on the list.
+		caret := styleMenuCaret
+		if m.Menu.Selected != menuFilterFocus {
+			caret = styleMenuFilter
+		}
 		field := styleMenuFilter.Render(strings.Repeat(" ", menuPadX)+"› "+line.Label) +
-			styleMenuCaret.Render(" ")
+			caret.Render(" ")
 		pad := max(0, blockWidth-menuPadX-2-runewidth.StringWidth(line.Label)-1)
 		field += styleMenuFilter.Render(strings.Repeat(" ", pad))
 		right := max(0, width-left-blockWidth)

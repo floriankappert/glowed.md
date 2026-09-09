@@ -133,11 +133,13 @@ an editor and reshapes the surrounding UI.
   the file is created next to the current document, and `.md` is appended when
   the name carries no extension.
 - `ctrl+p` opens the action menu with the filter focused, so you can type
-  straight away. It filters the actions by label and key **and finds documents**
+  straight away. `↓` moves the keyboard into the entry list and `↑` on the first
+  entry hands it back to the filter; typing anywhere returns to it. While the
+  filter has focus no entry is highlighted, and `enter` runs the first match. It filters the actions by label and key **and finds documents**
   by path and title, listed under *files*: typing `todo` offers `todo.md`, and
-  `enter` opens it in the editor. `↑` / `↓` move through the matches and `esc`
-  clears the filter before it closes the menu. At most 7 document matches are
-  offered at once, with a note saying how many were left out.
+  `enter` opens it in the editor. `esc` clears the filter before it closes the
+  menu. At most 7 document matches are offered at once, with a note saying how
+  many were left out.
 - The overlay covers the whole frame, both panes included, and the frame is
   drawn as one box captioned *actions* while it is open. Clicks cannot reach
   what is behind it.
@@ -187,6 +189,16 @@ an editor and reshapes the surrounding UI.
   line instead of being dropped silently (see the [FAQ](#faq)).
 - The documented copy shortcut was corrected to `opt+c`: `cmd+c` cannot reach
   the program, because macOS routes it to Ghostty's *Edit > Copy* menu item.
+
+### Defaults
+
+- The external LLM session is off by default (`llm.enabled`), because the
+  launcher needs a terminal and a CLI that may not be installed. While it is
+  off, the action menu leaves the entry out instead of offering one that only
+  warns when run. This fork's own `.glowed.json` sets it to `false` as well.
+- Upstream's *source* action is labelled *copy exact markdown* in the menu: it
+  enters a mode where a selection yields the original Markdown with its path
+  metadata rather than the rendered preview text.
 
 ### Under the hood
 

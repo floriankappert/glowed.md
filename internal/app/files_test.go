@@ -199,19 +199,6 @@ func TestActionMenuEscClosesIt(t *testing.T) {
 	}
 }
 
-func TestActionMenuArrowMovesTheSelection(t *testing.T) {
-	m, _ := projectModel(t)
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	if m.Menu.Selected != 1 {
-		t.Fatalf("Menu.Selected = %d, want 1", m.Menu.Selected)
-	}
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyUp})
-	if m.Menu.Selected != 0 {
-		t.Fatalf("Menu.Selected = %d, want 0", m.Menu.Selected)
-	}
-}
-
 func TestActionMenuNewFileOpensThePrompt(t *testing.T) {
 	m, _ := projectModel(t)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
@@ -227,7 +214,7 @@ func TestActionMenuNewFileOpensThePrompt(t *testing.T) {
 func TestActionMenuRenamePrefillsTheCurrentName(t *testing.T) {
 	m, _ := projectModel(t)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = selectMenuLabel(t, m, "edit filename")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Prompt.Input != "alpha.md" {
 		t.Fatalf("Prompt.Input = %q, want the current file name", m.Prompt.Input)
@@ -544,12 +531,7 @@ func TestActionMenuHasGoHome(t *testing.T) {
 func TestGoHomeShowsTheWelcomeScreen(t *testing.T) {
 	m, _ := projectModel(t)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
-	for i := 0; i < len(m.menuEntries()); i++ {
-		if m.menuEntries()[m.Menu.Selected].Kind == menuGoHome {
-			break
-		}
-		m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	}
+	m = selectMenuLabel(t, m, "go home")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if !m.Splash {
@@ -673,8 +655,8 @@ func TestWelcomeMenuOmitsGoHome(t *testing.T) {
 func TestWelcomeMenuArrowsAndEscWork(t *testing.T) {
 	m := welcomeMenuModel(t, "one.md")
 	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
-	if m.Menu.Selected != 1 {
-		t.Fatalf("Menu.Selected = %d, want 1", m.Menu.Selected)
+	if m.Menu.Selected != 0 {
+		t.Fatalf("Menu.Selected = %d, want the first entry", m.Menu.Selected)
 	}
 	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.Menu.Active {
@@ -1182,17 +1164,100 @@ func TestActionMenuAlignsKeysInTheirOwnColumn(t *testing.T) {
 
 // --- the menu filter ---
 
-func TestActionMenuStartsWithAnEmptyFilterAndFirstMatchHighlighted(t *testing.T) {
+func TestActionMenuStartsWithTheFilterFocused(t *testing.T) {
 	m, _ := projectModel(t)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
 	if m.Menu.Query != "" {
 		t.Fatalf("Menu.Query = %q, want empty", m.Menu.Query)
 	}
-	if m.Menu.Selected != 0 {
-		t.Fatalf("Menu.Selected = %d, want the first match highlighted", m.Menu.Selected)
+	if m.Menu.Selected != menuFilterFocus {
+		t.Fatalf("Menu.Selected = %d, want the filter focused (%d)", m.Menu.Selected, menuFilterFocus)
+	}
+	// Nothing is highlighted while the filter has the keyboard.
+	for _, row := range m.menuBlock() {
+		if row.Kind == menuRowAction && row.Entry == m.Menu.Selected {
+			t.Fatalf("entry %q is highlighted although the filter has focus", row.Label)
+		}
 	}
 	if !strings.Contains(menuText(t, m), "actions") {
 		t.Fatal("menu title missing")
+	}
+}
+
+// down enters the list, up on the first entry comes back to the filter.
+func TestActionMenuArrowsWalkBetweenFilterAndList(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.Menu.Selected != 0 {
+		t.Fatalf("Menu.Selected = %d after down, want the first entry", m.Menu.Selected)
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.Menu.Selected != 1 {
+		t.Fatalf("Menu.Selected = %d after a second down, want 1", m.Menu.Selected)
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.Menu.Selected != 0 {
+		t.Fatalf("Menu.Selected = %d after up, want 0", m.Menu.Selected)
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.Menu.Selected != menuFilterFocus {
+		t.Fatalf("Menu.Selected = %d, want up on the first entry to return to the filter", m.Menu.Selected)
+	}
+	// It stops there instead of wrapping around.
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.Menu.Selected != menuFilterFocus {
+		t.Fatalf("Menu.Selected = %d, want it to stay on the filter", m.Menu.Selected)
+	}
+}
+
+// Typing anywhere puts the keyboard back on the filter.
+func TestTypingReturnsFocusToTheFilter(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	if m.Menu.Selected != menuFilterFocus {
+		t.Fatalf("Menu.Selected = %d, want the filter focused again", m.Menu.Selected)
+	}
+	if m.Menu.Query != "u" {
+		t.Fatalf("Menu.Query = %q, want %q", m.Menu.Query, "u")
+	}
+}
+
+// The filter row shows where the keyboard is.
+func TestFilterRowMarksItsFocus(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	caret := styleMenuCaret.Render(" ")
+	filterRow := func(mm Model) string {
+		for _, row := range menuRows(t, mm) {
+			// The filter row starts with the prompt; other rows only carry a
+			// "›" as their key, at the right.
+			if strings.HasPrefix(strings.TrimSpace(stripANSI(row)), "│") {
+				inner := strings.TrimSpace(strings.Trim(stripANSI(row), "│ "))
+				if strings.HasPrefix(inner, "›") {
+					return row
+				}
+			}
+		}
+		return ""
+	}
+	focused := filterRow(m)
+	if !strings.Contains(focused, caret) {
+		t.Fatalf("filter row has no caret while focused: %q", focused)
+	}
+
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	unfocused := filterRow(m)
+	if strings.Contains(unfocused, caret) {
+		t.Fatalf("filter row still carries the caret while the list has focus: %q", unfocused)
 	}
 }
 
@@ -1240,19 +1305,6 @@ func TestActionMenuEnterRunsTheFirstMatch(t *testing.T) {
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.Prompt.Active || m.Prompt.Kind != promptRename {
 		t.Fatalf("enter did not run the filtered match: prompt=%+v status=%q", m.Prompt, m.Status)
-	}
-}
-
-func TestActionMenuDownMovesThroughTheMatches(t *testing.T) {
-	m, _ := projectModel(t)
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	if m.Menu.Selected != 1 {
-		t.Fatalf("Menu.Selected = %d, want 1", m.Menu.Selected)
-	}
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyUp})
-	if m.Menu.Selected != 0 {
-		t.Fatalf("Menu.Selected = %d, want 0", m.Menu.Selected)
 	}
 }
 

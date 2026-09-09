@@ -84,7 +84,9 @@ func Default() Config {
 		Mouse:    MouseConfig{Enabled: true},
 		Defaults: DefaultsConfig{EditMode: true, SidebarVisible: true},
 		LLM: LLMConfig{
-			Enabled:            true,
+			// Off until the external session is configured: the launcher
+			// depends on a terminal and a CLI that may not be installed.
+			Enabled:            false,
 			Command:            "claude",
 			TerminalCommand:    "ghostty",
 			TerminalApp:        "Ghostty",

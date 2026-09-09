@@ -2445,6 +2445,10 @@ func (m Model) modeEntries() []footerEntry {
 		if label == "" {
 			continue
 		}
+		// An action the config switched off would only warn when run.
+		if action == "openLLM" && !m.Cfg.LLM.Enabled {
+			continue
+		}
 		entries = append(entries, footerEntry{Key: m.footerKey(action), Label: label, Action: action})
 	}
 	// Keys worth knowing that are not actions of their own.
@@ -2755,7 +2759,7 @@ func labelForAction(action string) string {
 	case "edit":
 		return "edit"
 	case "sourceSelect":
-		return "source"
+		return "copy exact markdown"
 	case "openLLM":
 		return "llm"
 	case "save":

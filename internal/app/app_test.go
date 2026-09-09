@@ -139,6 +139,8 @@ func TestChatMockSendMentionsCurrentPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
+	// The launcher is off by default; this test exercises it deliberately.
+	cfg.LLM.Enabled = true
 	cfg.LLM.Command = "mock"
 	m := Model{
 		Root:    root,
