@@ -928,6 +928,10 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	if y < m.contentTop() || y >= m.contentTop()+m.contentHeight() {
 		return nil
 	}
+	// The action menu covers the panes, so a click cannot reach what is behind.
+	if m.Menu.Active {
+		return nil
+	}
 	row := y - m.contentTop()
 	if m.Chat.Visible && x >= m.chatStartX() {
 		m.Focus = FocusChat
@@ -2030,6 +2034,28 @@ const paneCaptionIndent = 2
 // a junction column, and every border segment is colored by the pane it belongs
 // to so the focused pane stands out.
 func (m Model) renderPaneBorder(top bool) string {
+	// The action menu covers every pane, so the frame is one box while it is
+	// open instead of a divided one with an overlay in a single pane.
+	if m.Menu.Active {
+		border, caption := paneStyles(true)
+		corner, closing := "└", "┘"
+		if top {
+			corner, closing = "┌", "┐"
+		}
+		inner := max(0, m.Width-2)
+		if !top {
+			return border.Render(corner + strings.Repeat("─", inner) + closing)
+		}
+		label := " actions "
+		if runewidth.StringWidth(label)+paneCaptionIndent > inner {
+			return border.Render(corner + strings.Repeat("─", inner) + closing)
+		}
+		rest := max(0, inner-paneCaptionIndent-runewidth.StringWidth(label))
+		return border.Render(corner+strings.Repeat("─", paneCaptionIndent)) +
+			caption.Render(label) +
+			border.Render(strings.Repeat("─", rest)+closing)
+	}
+
 	panes := m.panes()
 	var b strings.Builder
 	for i, pane := range panes {
@@ -2082,6 +2108,12 @@ func (m Model) renderPaneBorder(top bool) string {
 
 // renderPaneRow draws one body row across all panes, sharing vertical borders.
 func (m Model) renderPaneRow(row int) string {
+	if m.Menu.Active {
+		style, _ := paneStyles(true)
+		line, _ := m.renderMenuRow(max(0, m.Width-2), m.contentHeight(), row)
+		return style.Render("│") + line + style.Render("│")
+	}
+
 	panes := m.panes()
 	var b strings.Builder
 	for i, pane := range panes {
@@ -2106,9 +2138,6 @@ func (m Model) paneContent(pane paneSpec, row int) string {
 	case paneChat:
 		return strings.Repeat(" ", panePadLeft) + m.renderChatLine(row)
 	default:
-		if line, ok := m.renderMenuRow(pane.Width, m.contentHeight(), row); ok {
-			return line
-		}
 		if m.rawBufferMode() {
 			return strings.Repeat(" ", panePadLeft) + m.renderEditorLine(row)
 		}

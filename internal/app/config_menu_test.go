@@ -162,22 +162,35 @@ func TestEscLeavesASubmenuBeforeClosingTheMenu(t *testing.T) {
 	}
 }
 
-// A filter typed in a submenu filters that level, not the top one.
-func TestFilterAppliesToTheCurrentLevel(t *testing.T) {
+// A submenu has no filter bar, so typing must not filter invisibly.
+func TestSubmenuHasNoFilter(t *testing.T) {
 	m := configModel(t)
 	m = openMenu(t, m, "configuration", "defaults")
+	if m.menuShowsFilter() {
+		t.Fatal("submenu still shows the filter row")
+	}
 	for _, r := range "sidebar" {
 		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	entries := m.menuActions()
-	if len(entries) != 1 || !strings.Contains(entries[0].Label, "sidebar") {
-		t.Fatalf("filtered entries = %+v, want the sidebar toggle only", entries)
+	if m.Menu.Query != "" {
+		t.Fatalf("Menu.Query = %q, want typing ignored in a submenu", m.Menu.Query)
 	}
-	// Documents are a top-level concern.
-	for _, entry := range entries {
-		if entry.Kind == menuOpenDoc {
-			t.Fatalf("submenu offered a document: %q", entry.Label)
+	if len(m.menuActions()) != 2 {
+		t.Fatalf("%d entries, want both toggles untouched", len(m.menuActions()))
+	}
+	for _, row := range m.menuBlock() {
+		if row.Kind == menuRowFilter {
+			t.Fatal("filter row rendered in a submenu")
 		}
+	}
+}
+
+// The top level keeps its filter.
+func TestTopLevelKeepsTheFilter(t *testing.T) {
+	m := configModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	if !m.menuShowsFilter() {
+		t.Fatal("top level has no filter row")
 	}
 }
 
@@ -189,5 +202,69 @@ func TestReopeningTheMenuResetsTheLevel(t *testing.T) {
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP}) // open
 	if !strings.Contains(menuText(t, m), "new file") {
 		t.Fatalf("menu did not reopen at the top level:\n%s", menuText(t, m))
+	}
+}
+
+// The status line must not promise a filter that a submenu does not have.
+func TestSubmenuStatusDoesNotMentionTyping(t *testing.T) {
+	m := configModel(t)
+	m = openMenu(t, m, "configuration")
+	if strings.Contains(m.Status, "type to filter") {
+		t.Fatalf("Status = %q, want no filter hint in a submenu", m.Status)
+	}
+	if !strings.Contains(m.Status, "configuration") {
+		t.Fatalf("Status = %q, want it to name the level", m.Status)
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if !strings.Contains(m.Status, "type to filter") {
+		t.Fatalf("Status = %q, want the filter hint back at the top level", m.Status)
+	}
+}
+
+// The welcome screen needs the settings and the filter as much as the main
+// window does.
+func TestWelcomeMenuHasConfigurationAndFilter(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md", "two.md")
+	if !m.menuShowsFilter() {
+		t.Fatal("welcome menu has no filter row")
+	}
+	text := menuText(t, m)
+	if !strings.Contains(text, "configuration") {
+		t.Fatalf("welcome menu has no configuration entry:\n%s", text)
+	}
+	if !strings.Contains(text, "›") {
+		t.Fatalf("welcome menu shows no filter prompt:\n%s", text)
+	}
+}
+
+func TestWelcomeMenuReachesTheDefaultsAndSavesThem(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md")
+	m = selectMenuLabel(t, m, "configuration")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = selectMenuLabel(t, m, "defaults")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = selectMenuLabel(t, m, "sidebar visible as default")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.StatusKind == "error" {
+		t.Fatalf("save failed: %q", m.Status)
+	}
+	saved, _ := config.Load(t.TempDir())
+	if saved.Defaults.SidebarVisible {
+		t.Fatal("the welcome screen could not change the default")
+	}
+	if !m.Splash {
+		t.Fatal("configuring dropped the welcome screen")
+	}
+}
+
+func TestWelcomeMenuFilterMatchesConfiguration(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md")
+	for _, r := range "conf" {
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	entries := m.menuActions()
+	if len(entries) != 1 || entries[0].Kind != menuSubmenu {
+		t.Fatalf("filtered entries = %+v, want the configuration submenu", entries)
 	}
 }

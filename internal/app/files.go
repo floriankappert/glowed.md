@@ -68,6 +68,11 @@ type menuEntry struct {
 	Path   string // absolute path, for menuOpenDoc entries
 }
 
+// menuShowsFilter reports whether the filter row is part of the menu. Only the
+// top level has one: a submenu is a short, fixed list, and a hidden filter
+// would swallow keystrokes with nothing on screen to explain it.
+func (m Model) menuShowsFilter() bool { return m.menuLevel() == "" }
+
 // menuLevel names the submenu the menu is in.
 func (m Model) menuLevel() string {
 	if len(m.Menu.Path) == 0 {
@@ -104,7 +109,6 @@ func (m Model) menuEntries() []menuEntry {
 		return []menuEntry{
 			{Label: "open", Key: "enter", Kind: menuOpenSelection},
 			{Label: "new file", Key: "ctrl+n", Kind: menuNewFile},
-			{Label: "configuration", Kind: menuSubmenu, Key: "›"},
 			{Label: "quit", Key: m.footerKey("quit"), Kind: menuDispatch, Action: "quit"},
 		}
 	}
@@ -113,7 +117,6 @@ func (m Model) menuEntries() []menuEntry {
 		{Label: "edit filename", Kind: menuRename},
 		{Label: "<> sidebar", Key: "ctrl+t", Kind: menuDispatch, Action: "toggleSidebar"},
 		{Label: "<> edit/preview", Kind: menuDispatch, Action: "toggleMode"},
-		{Label: "configuration", Kind: menuSubmenu, Key: "›"},
 		{Label: "go home", Kind: menuGoHome, Gap: true},
 	}
 }
@@ -123,6 +126,11 @@ func deleteEntry() menuEntry {
 	return menuEntry{Label: "delete file", Kind: menuDelete, Danger: true}
 }
 
+// configurationEntry is the way into the settings, below everything else.
+func configurationEntry() menuEntry {
+	return menuEntry{Label: "configuration", Key: "›", Kind: menuSubmenu, Gap: true}
+}
+
 // menuActions are the selectable entries that match the filter: the app
 // actions, the actions the current mode offers, and the destructive one last.
 // The mode's hints used to sit in a footer bar; the ones that can be run are
@@ -130,7 +138,8 @@ func deleteEntry() menuEntry {
 func (m Model) menuActions() []menuEntry {
 	entries := m.menuEntries()
 	if m.menuLevel() != "" {
-		return filterMenuEntries(entries, m.Menu.Query)
+		// A submenu is a fixed list with no filter bar to explain a filter.
+		return entries
 	}
 	if !m.Splash {
 		offered := map[string]bool{}
@@ -157,7 +166,8 @@ func (m Model) menuActions() []menuEntry {
 	if len(docs) > menuDocMatches {
 		docs = docs[:menuDocMatches]
 	}
-	return append(matched, docs...)
+	matched = append(matched, docs...)
+	return append(matched, filterMenuEntries([]menuEntry{configurationEntry()}, m.Menu.Query)...)
 }
 
 // menuDocMatches caps how many documents the filter offers at once.
@@ -518,6 +528,11 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		if len(m.Menu.Path) > 0 {
 			m.Menu.Path = m.Menu.Path[:len(m.Menu.Path)-1]
 			m.Menu.Selected = 0
+			if level := m.menuLevel(); level != "" {
+				m.setStatus(level+" — ↑↓ select, enter apply, esc back", "info")
+			} else {
+				m.setStatus("actions — type to filter, ↑↓ select, enter run, esc close", "info")
+			}
 			return nil
 		}
 		m.Menu.Active = false
@@ -560,6 +575,8 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 			m.Menu.Path = append(m.Menu.Path, entry.Label)
 			m.Menu.Query = ""
 			m.Menu.Selected = 0
+			// A submenu has no filter, so it must not claim you can type.
+			m.setStatus(m.menuLevel()+" — ↑↓ select, enter apply, esc back", "info")
 		case menuToggleEditDefault:
 			m.saveDefaults(config.DefaultsConfig{
 				EditMode:       !m.Cfg.Defaults.EditMode,
@@ -579,6 +596,9 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	if !m.menuShowsFilter() {
+		return nil
+	}
 	// Everything else is typed into the filter, so no letter can be a
 	// navigation key here.
 	if msg.Type == tea.KeyRunes && !msg.Alt {
@@ -677,8 +697,12 @@ func (m Model) menuBlock() []menuRow {
 	rows := []menuRow{
 		{Kind: menuRowTitle, Label: title, Entry: -1},
 		{Kind: menuRowBlank, Entry: -1},
-		{Kind: menuRowFilter, Label: m.Menu.Query, Entry: -1},
-		{Kind: menuRowBlank, Entry: -1},
+	}
+	if m.menuShowsFilter() {
+		rows = append(rows,
+			menuRow{Kind: menuRowFilter, Label: m.Menu.Query, Entry: -1},
+			menuRow{Kind: menuRowBlank, Entry: -1},
+		)
 	}
 
 	entries := m.menuActions()
@@ -744,26 +768,50 @@ func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
 	// bottom, so it can never scroll out of sight; the entries between them
 	// scroll to keep the selection visible.
 	// The title and the filter row stay put: the filter has the keyboard.
-	head := rows[:min(len(rows), 4)]
+	headLen := 0
+	for _, row := range rows {
+		if row.Kind != menuRowTitle && row.Kind != menuRowBlank && row.Kind != menuRowFilter {
+			break
+		}
+		headLen++
+	}
+	head := rows[:min(len(rows), headLen)]
 	if height <= len(head) {
 		return rows[:height]
 	}
+
+	// Everything from the destructive entry down stays pinned to the bottom, so
+	// neither it nor the settings below it can scroll out of sight.
 	tail := []menuRow{}
 	body := rows[len(head):]
-	if last := body[len(body)-1]; last.Danger {
-		tail = []menuRow{last}
-		body = body[:len(body)-1]
+	for i := len(body) - 1; i >= 0; i-- {
+		if !body[i].Danger {
+			continue
+		}
+		tail = body[i:]
+		body = body[:i]
 		if len(body) > 0 && body[len(body)-1].Kind == menuRowBlank {
 			body = body[:len(body)-1]
+		}
+		break
+	}
+
+	// Is the selection inside the pinned tail?
+	selectedInTail := false
+	for _, row := range tail {
+		if row.Kind == menuRowAction && row.Entry == selected {
+			selectedInTail = true
 		}
 	}
 
 	avail := height - len(head) - len(tail)
-	if avail < 1 {
-		// Too short even for the pinned rows: the entries win.
+	if avail < 1 && !selectedInTail {
+		// Too short even for the pinned rows, and the selection is elsewhere:
+		// showing what is selected wins.
 		tail = nil
 		avail = height - len(head)
 	}
+	avail = max(1, avail)
 	sel := 0
 	for i, row := range body {
 		if row.Kind == menuRowAction && row.Entry == selected {
@@ -776,7 +824,12 @@ func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
 	out := make([]menuRow, 0, len(head)+end-start+len(tail))
 	out = append(out, head...)
 	out = append(out, body[start:end]...)
-	return append(out, tail...)
+	out = append(out, tail...)
+	if len(out) > height {
+		// The pinned rows are what must survive a very short pane.
+		out = append(out[:len(head)], out[len(out)-(height-len(head)):]...)
+	}
+	return out
 }
 
 // menuKeyGap separates a label from its key inside a menu row.

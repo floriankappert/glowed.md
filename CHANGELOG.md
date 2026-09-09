@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.12 - 2026-09-09
+
+### Changed
+
+- The action-menu overlay covers the whole frame now, sidebar included, and the frame is drawn as one box captioned *actions* while it is open. A click can no longer reach a pane behind it.
+- *configuration* moved to the very bottom of the menu, below *delete file* and behind a blank row. Both it and the destructive entry stay pinned when the menu has to scroll.
+- A submenu no longer shows the filter row, and typing in one does nothing instead of filtering invisibly. Its status line says so rather than claiming you can type.
+
+### Fixed
+
+- The welcome screen's action menu ignored the filter entirely, so neither actions nor documents could be searched from it, and it was missing the configuration entry. Both work there now.
+- Tests no longer read or write the developer's own `~/.config/glowed/config.json`: both packages that touch it point `HOME` at a throwaway directory for the whole test run. Without that, a local config changed what the tests saw, and a test that saves a default wrote into it.
+
+
 ## v0.2.2-floriankappert.11 - 2026-09-09
 
 ### Added

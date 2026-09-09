@@ -868,7 +868,8 @@ func TestActionMenuFitsAShortPane(t *testing.T) {
 // When even the actions do not fit, the selected one stays on screen.
 func TestActionMenuKeepsTheSelectionVisibleWhenScrolling(t *testing.T) {
 	m := layoutModel(t, 90, 14)
-	m.Menu = menuState{Active: true, Selected: len(m.menuActions()) - 1}
+	m.Menu = menuState{Active: true}
+	m = selectMenuLabel(t, m, "cancel")
 	fitted := fitMenuBlock(m.menuBlock(), 7, m.Menu.Selected)
 	if len(fitted) > 7 {
 		t.Fatalf("fitted block has %d rows, want at most 7", len(fitted))
@@ -959,8 +960,8 @@ func TestActionMenuPutsDeleteLastBehindABlankRow(t *testing.T) {
 	m.Menu = menuState{Active: true}
 
 	actions := m.menuActions()
-	if last := actions[len(actions)-1]; last.Kind != menuDelete {
-		t.Fatalf("last runnable entry is %q, want delete file", last.Label)
+	if second := actions[len(actions)-2]; second.Kind != menuDelete {
+		t.Fatalf("second to last entry is %q, want delete file", second.Label)
 	}
 
 	block := m.menuBlock()
@@ -976,9 +977,9 @@ func TestActionMenuPutsDeleteLastBehindABlankRow(t *testing.T) {
 	if block[deleteAt-1].Kind != menuRowBlank {
 		t.Fatalf("row above delete is %v, want a blank row", block[deleteAt-1].Kind)
 	}
-	// No runnable action may follow it.
+	// Only the configuration submenu sits below it.
 	for _, row := range block[deleteAt+1:] {
-		if row.Kind == menuRowAction {
+		if row.Kind == menuRowAction && row.Label != "configuration" {
 			t.Fatalf("action %q rendered below delete file", row.Label)
 		}
 	}
@@ -1011,8 +1012,8 @@ func TestActionMenuHighlightsSelectedDeleteAsDangerous(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
 
 	m := layoutModel(t, 90, 30)
-	actions := m.menuActions()
-	m.Menu = menuState{Active: true, Selected: len(actions) - 1}
+	m.Menu = menuState{Active: true}
+	m = selectMenuLabel(t, m, "delete file")
 	selected := styleMenuDangerSelected.Render("x")
 	prefix := selected[:strings.Index(selected, "x")]
 	for _, row := range menuRows(t, m) {
@@ -1026,7 +1027,8 @@ func TestActionMenuHighlightsSelectedDeleteAsDangerous(t *testing.T) {
 // Running it from the bottom of the list still asks for confirmation.
 func TestActionMenuDeleteFromTheBottomStillConfirms(t *testing.T) {
 	m, _ := projectModel(t)
-	m.Menu = menuState{Active: true, Selected: len(m.menuActions()) - 1}
+	m.Menu = menuState{Active: true}
+	m = selectMenuLabel(t, m, "delete file")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.Prompt.Active || m.Prompt.Kind != promptDeleteConfirm {
 		t.Fatalf("no delete confirmation: prompt=%+v status=%q", m.Prompt, m.Status)
@@ -1175,22 +1177,6 @@ func TestActionMenuAlignsKeysInTheirOwnColumn(t *testing.T) {
 	}
 	if longest < 15 {
 		t.Fatalf("longest label is %d columns, expected the toggle entry", longest)
-	}
-}
-
-// The destructive entry must never scroll out of sight.
-func TestActionMenuPinsDeleteWhenItScrolls(t *testing.T) {
-	m := layoutModel(t, 90, 20)
-	m.Menu = menuState{Active: true, Selected: 0}
-	fitted := fitMenuBlock(m.menuBlock(), 8, 0)
-	if len(fitted) > 8 {
-		t.Fatalf("fitted block has %d rows, want at most 8", len(fitted))
-	}
-	if fitted[0].Kind != menuRowTitle {
-		t.Fatal("title not pinned at the top")
-	}
-	if last := fitted[len(fitted)-1]; !last.Danger {
-		t.Fatalf("last row is %q, want the destructive entry pinned at the bottom", last.Label)
 	}
 }
 
@@ -1465,5 +1451,111 @@ func TestActionMenuFilterFindsDocumentsOnTheWelcomeScreen(t *testing.T) {
 	}
 	if filepath.Base(m.Editor.File) != "beta.md" {
 		t.Fatalf("editing %q, want beta.md", m.Editor.File)
+	}
+}
+
+func TestConfigurationSitsBelowDeleteBehindABlankRow(t *testing.T) {
+	m := layoutModel(t, 90, 34)
+	m.Menu = menuState{Active: true}
+
+	actions := m.menuActions()
+	if last := actions[len(actions)-1]; last.Label != "configuration" {
+		t.Fatalf("last entry is %q, want configuration", last.Label)
+	}
+	if actions[len(actions)-2].Kind != menuDelete {
+		t.Fatalf("entry above configuration is %q, want delete file", actions[len(actions)-2].Label)
+	}
+
+	block := m.menuBlock()
+	for i, row := range block {
+		if row.Kind == menuRowAction && row.Label == "configuration" {
+			if block[i-1].Kind != menuRowBlank {
+				t.Fatalf("row above configuration is %v, want a blank row", block[i-1].Kind)
+			}
+			return
+		}
+	}
+	t.Fatal("configuration row not rendered")
+}
+
+// Both the destructive entry and the configuration below it stay visible.
+func TestActionMenuPinsTheBottomGroupWhenItScrolls(t *testing.T) {
+	m := layoutModel(t, 90, 34)
+	m.Menu = menuState{Active: true, Selected: 0}
+	fitted := fitMenuBlock(m.menuBlock(), 10, 0)
+	if len(fitted) > 10 {
+		t.Fatalf("fitted block has %d rows, want at most 10", len(fitted))
+	}
+	var danger, configuration bool
+	for _, row := range fitted {
+		if row.Danger {
+			danger = true
+		}
+		if row.Label == "configuration" {
+			configuration = true
+		}
+	}
+	if !danger || !configuration {
+		t.Fatalf("bottom group not pinned: danger=%v configuration=%v", danger, configuration)
+	}
+}
+
+// The overlay covers both panes, so the sidebar does not sit beside it.
+func TestActionMenuCoversTheWholeFrame(t *testing.T) {
+	m := layoutModel(t, 90, 24)
+	m.Menu = menuState{Active: true}
+	rows := viewRows(t, m)
+
+	frame := strings.Join(rows[m.contentTop():m.paneBottomRow()], "\n")
+	if strings.Contains(frame, "alpha.md") {
+		t.Fatalf("sidebar still visible beside the menu:\n%s", frame)
+	}
+	top := rows[m.contentTop()-1]
+	bottom := rows[m.paneBottomRow()]
+	if strings.Contains(top, "┬") || strings.Contains(bottom, "┴") {
+		t.Fatalf("frame is still divided:\ntop=%q\nbottom=%q", top, bottom)
+	}
+	if !strings.HasPrefix(top, "┌") || !strings.HasSuffix(top, "┐") {
+		t.Fatalf("top border = %q", top)
+	}
+	for row := m.contentTop(); row < m.paneBottomRow(); row++ {
+		line := rows[row]
+		if !strings.HasPrefix(line, "│") || !strings.HasSuffix(line, "│") {
+			t.Fatalf("body row %d is not enclosed: %q", row, line)
+		}
+		if strings.Count(line, "│") != 2 {
+			t.Fatalf("body row %d still carries a divider: %q", row, line)
+		}
+	}
+	if len(rows) != m.Height {
+		t.Fatalf("%d rows, want %d", len(rows), m.Height)
+	}
+}
+
+func TestActionMenuOverlayKeepsEveryRowAtFullWidth(t *testing.T) {
+	for _, size := range []struct{ w, h int }{{80, 18}, {120, 30}, {60, 14}} {
+		m := layoutModel(t, size.w, size.h)
+		m.Menu = menuState{Active: true}
+		for i, row := range viewRows(t, m) {
+			if w := runewidth.StringWidth(row); w != m.Width {
+				t.Fatalf("%dx%d: row %d has width %d, want %d (%q)", size.w, size.h, i, w, m.Width, row)
+			}
+		}
+	}
+}
+
+// A click on the covered sidebar must not select a document behind the menu.
+func TestClickIsIgnoredWhileTheMenuCoversTheFrame(t *testing.T) {
+	m := layoutModel(t, 90, 24)
+	m.Menu = menuState{Active: true}
+	before := m.Selected
+	m.handleMouse(tea.MouseMsg(tea.MouseEvent{
+		X: 2, Y: m.contentTop() + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
+	}))
+	if m.Selected != before {
+		t.Fatalf("Selected = %d, want %d: the click reached the covered sidebar", m.Selected, before)
+	}
+	if m.Focus == FocusSidebar {
+		t.Fatal("focus moved to the covered sidebar")
 	}
 }

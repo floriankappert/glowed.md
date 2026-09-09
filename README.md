@@ -94,9 +94,10 @@ an editor and reshapes the surrounding UI.
 - It stays up until a file is picked, and is skipped when a file is passed on
   the command line — an explicit argument is the selection.
 - `ctrl+n` and `ctrl+p` work there too, so an empty project is not a dead end.
-  The action menu offers only what makes sense on the welcome screen — open the
-  highlighted file, new file, quit — not the mode actions or file operations on
-  a document that is not open.
+  The action menu offers what makes sense on the welcome screen — open the
+  highlighted file, new file, quit, configuration — plus the filter, including
+  the document search. The mode actions and file operations on a document that
+  is not open are left out.
 - *go home* in the action menu returns to it.
 
 ### Layout
@@ -132,12 +133,18 @@ an editor and reshapes the surrounding UI.
   `enter` opens it in the editor. `↑` / `↓` move through the matches and `esc`
   clears the filter before it closes the menu. At most 7 document matches are
   offered at once, with a note saying how many were left out.
+- The overlay covers the whole frame, both panes included, and the frame is
+  drawn as one box captioned *actions* while it is open. Clicks cannot reach
+  what is behind it.
 - The menu has levels. *configuration → defaults* holds the startup defaults —
   *edit mode as default* and *sidebar visible as default* — each showing `on` or
   `off` and flipping on `enter`. The value is written to
   `~/.config/glowed/config.json` and applies on the next launch; the running
   session keeps its current mode and sidebar. `esc` walks back up one level
-  before it closes the menu, and the title shows where you are.
+  before it closes the menu, and the title shows where you are. A submenu has no
+  filter row — it is a short, fixed list — so typing there does nothing rather
+  than filtering invisibly. *configuration* sits at the very bottom of the top
+  level, below *delete file*.
 - The menu offers new file, edit filename, `<> sidebar`,
   `<> edit/preview`, go home, then the runnable actions of the current mode and
   a reference list of the keys it cannot run. Labels and keys sit in their own
