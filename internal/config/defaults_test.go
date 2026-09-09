@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -108,5 +109,21 @@ func TestSaveDefaultsKeepsOtherSettings(t *testing.T) {
 	cfg, _ := Load(t.TempDir())
 	if cfg.Preview.Style != "light" || cfg.Keys["quit"] != "x" {
 		t.Fatalf("existing settings changed: style=%q quit=%q", cfg.Preview.Style, cfg.Keys["quit"])
+	}
+}
+
+// A test that writes defaults must never reach the developer's own config.
+// os.UserHomeDir cannot verify this on macOS, because it reads HOME itself, so
+// check that HOME points somewhere temporary.
+func TestSuiteRunsWithAnIsolatedHome(t *testing.T) {
+	home := os.Getenv("HOME")
+	if home == "" {
+		t.Fatal("HOME is empty: SaveDefaults would fail rather than isolate")
+	}
+	if !strings.HasPrefix(home, os.TempDir()) {
+		t.Fatalf("HOME = %q, want a directory under %q: see TestMain", home, os.TempDir())
+	}
+	if _, err := os.Stat(home); err != nil {
+		t.Fatalf("HOME %q does not exist: %v", home, err)
 	}
 }
