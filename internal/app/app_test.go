@@ -199,8 +199,8 @@ func TestSourceSelectionModeLoadsRawMarkdown(t *testing.T) {
 	if got := strings.Join(m.Editor.Lines, "\n"); got != raw {
 		t.Fatalf("source lines = %q, want %q", got, raw)
 	}
-	if !strings.Contains(m.renderSeparator(), "source selection") {
-		t.Fatalf("separator = %q, want source selection", m.renderSeparator())
+	if !strings.Contains(stripANSI(m.renderPaneBorder(true)), "source selection") {
+		t.Fatalf("pane caption = %q, want source selection", stripANSI(m.renderPaneBorder(true)))
 	}
 
 	m.exitSourceMode()

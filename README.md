@@ -156,6 +156,79 @@ Use `tag:foo` to search tags specifically. The query syntax is `tag:foo`; `tags:
 - `ctrl+g r`: rescan
 - `ctrl+g q`: quit
 
+### Edit mode
+
+Edit is the default mode: glowed opens the initial document — or the first one
+it finds in the project — ready for editing, and documents opened from the
+sidebar land in the editor as well. `esc` leaves the editor for the preview.
+
+Editing supports word- and line-wise motion, deletion, and selection. On macOS,
+Ghostty rewrites `cmd` and `opt` combinations into control sequences before they
+reach the program, so both spellings below refer to the same binding.
+
+| Keys | Action |
+| --- | --- |
+| `opt+←` / `opt+→` | move one word left/right |
+| `cmd+←` / `cmd+→` (`ctrl+a` / `ctrl+e`, `home` / `end`) | move to line start/end |
+| `opt+⌫` | delete the word before the caret |
+| `opt+⌦` | delete the word after the caret |
+| `cmd+⌫` (`ctrl+u`) | delete to line start |
+| `ctrl+k` | delete to line end |
+| `shift+←→↑↓` | extend the selection character- and line-wise |
+| `opt+shift+←` / `opt+shift+→` | extend the selection word-wise |
+| `shift+home` / `shift+end` | extend the selection to line start/end |
+| `opt+a` | select the whole buffer |
+| `cmd+c` / `opt+c` | copy the selection as plain text |
+| `cmd+v` / `opt+v` | paste at the caret, replacing the selection |
+| `esc` | clear the selection, or leave edit mode when nothing is selected |
+
+Typing or deleting with an active selection replaces or removes it. A plain
+arrow key collapses the selection to its start or end.
+
+The sidebar is reachable without leaving the editor. `ctrl+b` and `shift+tab`
+work in every mode, so they behave the same while editing and while browsing:
+
+| Keys | Action |
+| --- | --- |
+| `ctrl+b` | show/hide the sidebar |
+| `shift+tab` | move the focus between the content pane and the sidebar, opening the sidebar if hidden |
+| `↑` / `↓` | select a row while the sidebar has focus |
+| `enter` | open the selected document for editing, or expand/collapse a directory |
+
+Switching to another document is refused while the current buffer has unsaved
+changes; save with `ctrl+s` or discard with `esc` first. Saving keeps the buffer
+open instead of returning to the preview.
+
+`cmd+v` works out of the box: Ghostty pastes into the terminal and glowed
+receives it as a bracketed paste, newlines included.
+
+`cmd+a` cannot be forwarded at all: macOS routes it to Ghostty's *Edit > Select
+All* menu item before the terminal sees it, and a menu shortcut wins over any
+keybind. Select-all is therefore `opt+a`. It deliberately does not sit on
+`ctrl+a`, because Ghostty sends exactly that for `cmd+←` — the two are
+indistinguishable to the program.
+
+`cmd+c` is claimed by Ghostty too, but can be remapped, because `cmd` cannot be
+expressed in the legacy key encoding:
+
+```
+keybind = super+c=esc:c
+```
+
+Ghostty applies remaps globally rather than per program, so weigh what they
+replace. This one takes over Ghostty's copy shortcut — with the default
+`copy-on-select = true`, a mouse selection still copies on its own. Without it,
+use `opt+c`, which needs no configuration when `macos-option-as-alt = true`.
+
+
+
+`cmd+z` / `cmd+shift+z` stay with Ghostty's own undo/redo; use `ctrl+z` and
+`ctrl+y` instead.
+
+Fenced code blocks that name a language are syntax highlighted in edit and
+source mode, using the same colors as the preview. Set `preview.style` to change
+the theme for both.
+
 ## Configuration
 
 Configuration is loaded from:

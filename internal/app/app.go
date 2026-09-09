@@ -136,6 +136,8 @@ type Model struct {
 	MouseEnabled   bool
 
 	Editor               editorState
+	Highlight            map[int][]render.Span
+	HighlightKey         uint64
 	Selection            selectionState
 	LastSelectionFile    string
 	LastSelectionPayload string
@@ -161,6 +163,9 @@ var (
 	styleCyan    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
 	styleReverse = lipgloss.NewStyle().Reverse(true)
 	styleFooter  = lipgloss.NewStyle().Background(lipgloss.Color("236"))
+
+	stylePaneActive        = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	stylePaneCaptionActive = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 )
 
 func New(root string) Model {
@@ -197,6 +202,16 @@ func NewWithInitial(root string, initialPath string) Model {
 	if initialPath != "" {
 		m.selectInitialDocument(initialPath)
 	}
+	// Edit is the default mode; fall back to preview when there is nothing to
+	// edit, for instance in an empty project. The startup notice about the scan
+	// and polling refresh is more useful here than the edit banner.
+	if m.currentDoc() != nil {
+		status, kind := m.Status, m.StatusKind
+		m.enterEditMode()
+		if status != "" {
+			m.Status, m.StatusKind = status, kind
+		}
+	}
 	return m
 }
 
@@ -205,6 +220,12 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	next.refreshHighlight()
+	return next, cmd
+}
+
+func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
@@ -257,6 +278,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	action := m.actionForKey(key, m.Cfg.Keys)
 
+	// The sidebar toggle and focus switch work in every mode, including while
+	// editing, where the browse bindings are not available.
+	if key == "ctrl+b" {
+		return m.dispatch("toggleSidebar")
+	}
+	if key == "shift+tab" {
+		m.toggleSidebarFocus()
+		return m, nil
+	}
+
 	if m.Chat.Visible && m.Focus == FocusChat {
 		if action == "nextFocus" {
 			m.cycleFocus()
@@ -279,13 +310,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.editorRedo()
 			return m, nil
 		}
+		if m.SidebarVisible && m.Focus == FocusSidebar {
+			m.handleEditSidebarKey(key)
+			return m, nil
+		}
 		if key == "esc" {
+			if m.hasEditorSelection() {
+				m.clearEditorSelection()
+				m.setStatus("selection cleared", "info")
+				return m, nil
+			}
 			m.cancelEdit()
 			return m, nil
 		}
-		m.clearEditorSelection()
-		m.handleEditorKey(msg)
-		return m, nil
+		return m, m.handleEditorKey(msg)
 	}
 
 	if m.Mode == ModeSource {
@@ -358,6 +396,10 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) {
 }
 
 func searchInputFromKey(msg tea.KeyMsg) (string, bool) {
+	// alt-modified keys are bindings, not text.
+	if msg.Alt {
+		return "", false
+	}
 	if msg.Type == tea.KeySpace {
 		return " ", true
 	}
@@ -427,7 +469,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) tea.Cmd {
 		m.Chat.Input += " "
 		return nil
 	}
-	if msg.Type == tea.KeyRunes {
+	if msg.Type == tea.KeyRunes && !msg.Alt {
 		m.Chat.Input += string(msg.Runes)
 	}
 	return nil
@@ -477,39 +519,205 @@ func (m *Model) handleSidebarNavigation(key string) {
 	}
 }
 
-func (m *Model) handleEditorKey(msg tea.KeyMsg) {
+// handleEditorKey maps a key to an editing operation.
+//
+// Ghostty does not deliver cmd combinations as such: it rewrites cmd+left,
+// cmd+right and cmd+backspace into ctrl+a, ctrl+e and ctrl+u, and opt+left /
+// opt+right into alt+b / alt+f. The bindings below are therefore expressed in
+// terms of what actually reaches the program.
+func (m *Model) handleEditorKey(msg tea.KeyMsg) tea.Cmd {
 	key := normalizeKey(msg.String())
+
+	// Pasted text arrives as a single bracketed-paste event and may span lines.
+	if msg.Paste {
+		m.pasteIntoEditor(string(msg.Runes))
+		m.ensureEditorVisible()
+		return nil
+	}
+
+	lines := m.Editor.Lines
+	at := m.caret()
+	var cmd tea.Cmd
+
 	switch key {
+	// Character-wise motion. A plain arrow collapses an active selection.
 	case "up":
-		m.moveEditor(0, -1)
+		if !m.collapseSelection(false) {
+			m.moveEditor(0, -1)
+		}
 	case "down":
-		m.moveEditor(0, 1)
+		if !m.collapseSelection(true) {
+			m.moveEditor(0, 1)
+		}
 	case "left":
-		m.moveEditor(-1, 0)
+		if !m.collapseSelection(false) {
+			m.moveEditor(-1, 0)
+		}
 	case "right":
-		m.moveEditor(1, 0)
-	case "home", "ctrl+a", "cmd+left", "alt+left":
-		m.Editor.CX = 0
-	case "end", "ctrl+e", "cmd+right", "alt+right":
-		m.Editor.CX = lineLen(m.Editor.Lines[m.Editor.CY])
+		if !m.collapseSelection(true) {
+			m.moveEditor(1, 0)
+		}
+
+	// Word-wise motion (opt+arrow).
+	case "alt+b", "alt+left":
+		m.moveCaretTo(textedit.WordLeft(lines, at), false)
+	case "alt+f", "alt+right":
+		m.moveCaretTo(textedit.WordRight(lines, at), false)
+
+	// Line-wise motion. Ghostty sends ctrl+a / ctrl+e for cmd+left / cmd+right.
+	case "home", "ctrl+a":
+		m.moveCaretTo(textedit.LineStart(lines, at), false)
+	case "end", "ctrl+e":
+		m.moveCaretTo(textedit.LineEnd(lines, at), false)
+
+	// Selection: shift extends from the anchor.
+	case "shift+left":
+		m.moveCaretTo(textedit.ClampPosition(lines, textedit.Position{Line: at.Line, Col: at.Col - 1}), true)
+	case "shift+right":
+		m.moveCaretTo(textedit.ClampPosition(lines, textedit.Position{Line: at.Line, Col: at.Col + 1}), true)
+	case "shift+up":
+		m.moveCaretTo(textedit.ClampPosition(lines, textedit.Position{Line: at.Line - 1, Col: at.Col}), true)
+	case "shift+down":
+		m.moveCaretTo(textedit.ClampPosition(lines, textedit.Position{Line: at.Line + 1, Col: at.Col}), true)
+	case "alt+shift+left":
+		m.moveCaretTo(textedit.WordLeft(lines, at), true)
+	case "alt+shift+right":
+		m.moveCaretTo(textedit.WordRight(lines, at), true)
+	case "shift+home":
+		m.moveCaretTo(textedit.LineStart(lines, at), true)
+	case "shift+end":
+		m.moveCaretTo(textedit.LineEnd(lines, at), true)
+	case "alt+a":
+		m.selectAllEditor()
+	case "alt+c":
+		cmd = m.copyEditorSelection()
+	case "alt+v":
+		m.pasteFromClipboard()
+
 	case "pgup":
-		m.moveEditor(0, -m.editorTextHeight())
+		m.moveCaretTo(textedit.ClampPosition(lines, textedit.Position{Line: at.Line - m.editorTextHeight(), Col: at.Col}), false)
 	case "pgdown":
-		m.moveEditor(0, m.editorTextHeight())
+		m.moveCaretTo(textedit.ClampPosition(lines, textedit.Position{Line: at.Line + m.editorTextHeight(), Col: at.Col}), false)
+
+	// Deletion. Each variant removes an active selection first.
 	case "backspace", "ctrl+h":
-		m.editorBackspace()
+		if !m.deleteEditorSelection() {
+			m.editorBackspace()
+		}
 	case "delete":
-		m.editorDelete()
+		if !m.deleteEditorSelection() {
+			m.editorDelete()
+		}
+	case "alt+backspace":
+		if !m.deleteEditorSelection() {
+			m.deleteEditorRange(at, textedit.WordLeft(lines, at))
+		}
+	case "alt+delete", "alt+d":
+		if !m.deleteEditorSelection() {
+			m.deleteEditorRange(at, textedit.WordRight(lines, at))
+		}
+	case "ctrl+u":
+		if !m.deleteEditorSelection() {
+			m.deleteEditorRange(at, textedit.LineStart(lines, at))
+		}
+	case "ctrl+k":
+		if !m.deleteEditorSelection() {
+			m.deleteEditorRange(at, textedit.LineEnd(lines, at))
+		}
+
 	case "enter":
-		m.editorEnter()
+		m.replaceSelection("\n")
 	case "tab":
-		m.editorInsert("  ")
+		m.replaceSelection("  ")
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.editorInsert(string(msg.Runes))
+		if text, ok := editorInputFromKey(msg); ok {
+			m.replaceSelection(text)
 		}
 	}
 	m.ensureEditorVisible()
+	return cmd
+}
+
+// editorInputFromKey returns the text a key should insert into the buffer.
+// Space arrives as its own key type rather than as runes, and unbound alt
+// combinations and control sequences must never leak into the document.
+func editorInputFromKey(msg tea.KeyMsg) (string, bool) {
+	if msg.Alt {
+		return "", false
+	}
+	if msg.Type == tea.KeySpace {
+		return " ", true
+	}
+	if msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
+		return "", false
+	}
+	for _, r := range msg.Runes {
+		if unicode.IsControl(r) || !unicode.IsPrint(r) {
+			return "", false
+		}
+	}
+	return string(msg.Runes), true
+}
+
+// toggleSidebarFocus moves the focus between the content pane and the sidebar,
+// opening the sidebar first when it is hidden.
+func (m *Model) toggleSidebarFocus() {
+	if m.Focus == FocusSidebar {
+		m.Focus = m.contentFocus()
+		if m.Mode == ModeEdit {
+			m.setStatus("editing "+filepath.Base(m.Editor.File), "info")
+		} else {
+			m.setStatus("preview", "info")
+		}
+		return
+	}
+	if !m.SidebarVisible {
+		m.SidebarVisible = true
+		m.reloadPreview()
+		m.ensureEditorVisible()
+	}
+	m.ensureSidebarState()
+	m.Focus = FocusSidebar
+	if m.Mode == ModeEdit {
+		m.setStatus("sidebar — up/down select, enter edits, shift+tab back", "info")
+	} else {
+		m.setStatus("sidebar — up/down select, enter opens, shift+tab back", "info")
+	}
+}
+
+// contentFocus is the focus the content pane uses in the current mode.
+func (m Model) contentFocus() Focus {
+	if m.Mode == ModeEdit {
+		return FocusEditor
+	}
+	return FocusPreview
+}
+
+// handleEditSidebarKey drives the sidebar while edit mode keeps the buffer open.
+func (m *Model) handleEditSidebarKey(key string) {
+	switch key {
+	case "esc", "tab":
+		m.Focus = FocusEditor
+		return
+	case "enter":
+		if row := m.currentSidebarRow(); row != nil && row.Kind == sidebarRowDirectory {
+			m.toggleSidebarDirectory()
+			return
+		}
+		m.openSidebarSelectionForEditing()
+		return
+	}
+	m.handleSidebarNavigation(key)
+}
+
+// openSidebarSelectionForEditing opens the selected document in edit mode.
+func (m *Model) openSidebarSelectionForEditing() {
+	row := m.currentSidebarRow()
+	if row == nil || row.Kind != sidebarRowDocument {
+		return
+	}
+	m.setSelection(row.DocIndex)
+	m.enterEditMode()
 }
 
 func (m *Model) handleSourceNavigation(key string) {
@@ -554,6 +762,14 @@ func (m Model) dispatch(action string) (Model, tea.Cmd) {
 		return m, m.launchExternalLLMSession()
 	case "save":
 		m.saveEditor()
+	case "selectAll":
+		if m.Mode == ModeEdit {
+			m.selectAllEditor()
+		}
+	case "cancelEdit":
+		if m.Mode == ModeEdit {
+			m.cancelEdit()
+		}
 	case "refresh":
 		m.scan("manual")
 	case "nextFocus":
@@ -644,11 +860,18 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	if m.SidebarVisible && x < m.leftWidth() {
 		idx := m.ListScroll + row
 		if idx >= 0 && idx < len(m.SidebarRows) {
-			m.Mode = ModePreview
+			editing := m.Mode == ModeEdit
+			if !editing {
+				m.Mode = ModePreview
+			}
 			m.Focus = FocusSidebar
 			m.setSidebarSelection(idx)
 			if m.SidebarRows[idx].Kind == sidebarRowDirectory {
 				m.toggleSidebarDirectory()
+			} else if editing {
+				// Edit is the default mode, so clicking a document opens it for
+				// editing instead of dropping back into the preview.
+				m.openSidebarSelectionForEditing()
 			}
 		}
 		return nil
@@ -659,19 +882,11 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		} else {
 			m.Focus = FocusPreview
 		}
-		if row == 0 {
-			m.clearEditorSelection()
-			return nil
-		}
 		if p, ok := m.editorPointFromMouse(x, y, false); ok {
 			m.startEditorSelection(p)
 		}
 	} else {
 		m.Focus = FocusPreview
-		if row == 0 {
-			m.clearEditorSelection()
-			return nil
-		}
 		if p, ok := m.previewPointFromMouse(x, y, false); ok {
 			m.startPreviewSelection(p)
 		}
@@ -825,6 +1040,10 @@ func (m *Model) enterEditMode() {
 		m.setStatus("no document selected", "warn")
 		return
 	}
+	if m.Editor.Dirty && m.Editor.File != "" && !m.pathsMatch(m.Editor.File, doc.Abs) {
+		m.setStatus("unsaved changes in "+filepath.Base(m.Editor.File)+" — ctrl+s to save, esc to discard", "warn")
+		return
+	}
 	path, err := docs.GuardExistingPath(m.Root, doc.Abs)
 	if err != nil {
 		m.setStatus("open blocked: "+err.Error(), "error")
@@ -863,8 +1082,9 @@ func (m *Model) saveEditor() {
 	m.Editor.Dirty = false
 	m.Editor.ExternalChanged = false
 	m.clearEditorSelection()
-	m.Mode = ModePreview
-	m.Focus = FocusPreview
+	// Edit is the default mode, so saving keeps the buffer open instead of
+	// dropping back into the preview.
+	m.Focus = FocusEditor
 	m.scan("save")
 	m.reloadPreview()
 	m.setStatus("saved "+file+" (backup "+backup+")", "success")
@@ -1545,6 +1765,12 @@ func (m *Model) moveEditor(dx, dy int) {
 
 func (m *Model) editorInsert(text string) {
 	m.pushEditorUndo()
+	m.insertText(text)
+}
+
+// insertText inserts at the caret without recording an undo step, so callers
+// can combine it with a preceding deletion into a single undoable edit.
+func (m *Model) insertText(text string) {
 	line := []rune(m.Editor.Lines[m.Editor.CY])
 	insert := []rune(text)
 	out := append([]rune{}, line[:m.Editor.CX]...)
@@ -1557,6 +1783,11 @@ func (m *Model) editorInsert(text string) {
 
 func (m *Model) editorEnter() {
 	m.pushEditorUndo()
+	m.splitLine()
+}
+
+// splitLine breaks the line at the caret without recording an undo step.
+func (m *Model) splitLine() {
 	line := []rune(m.Editor.Lines[m.Editor.CY])
 	before := string(line[:m.Editor.CX])
 	after := string(line[m.Editor.CX:])
@@ -1638,28 +1869,177 @@ func (m Model) View() string {
 	b.WriteByte('\n')
 	b.WriteString(m.renderSearch())
 	b.WriteByte('\n')
-	b.WriteString(m.renderSeparator())
+	b.WriteString(m.renderPaneBorder(true))
 	b.WriteByte('\n')
 	for row := 0; row < m.contentHeight(); row++ {
-		if m.SidebarVisible {
-			b.WriteString(m.renderListLine(row))
-			b.WriteString(styleDim.Render("│"))
-		}
-		if m.rawBufferMode() {
-			b.WriteString(m.renderEditorLine(row))
-		} else {
-			b.WriteString(m.renderPreviewLine(row))
-		}
-		if m.Chat.Visible {
-			b.WriteString(styleDim.Render("│"))
-			b.WriteString(m.renderChatLine(row))
-		}
+		b.WriteString(m.renderPaneRow(row))
 		b.WriteByte('\n')
 	}
-	b.WriteString(fitPlain("", m.Width))
+	b.WriteString(m.renderPaneBorder(false))
+	b.WriteByte('\n')
+	b.WriteString(m.renderToolbar())
 	b.WriteByte('\n')
 	b.WriteString(m.renderFooter())
 	return b.String()
+}
+
+type paneKind int
+
+const (
+	paneSidebar paneKind = iota
+	paneContent
+	paneChat
+)
+
+// paneSpec describes one boxed column of the layout.
+type paneSpec struct {
+	Kind    paneKind
+	Caption string
+	Width   int // inner width; panes share their vertical borders
+	Focused bool
+}
+
+// panes returns the visible panes from left to right. Their widths add up to
+// the terminal width.
+func (m Model) panes() []paneSpec {
+	specs := make([]paneSpec, 0, 3)
+	if m.SidebarVisible {
+		specs = append(specs, paneSpec{
+			Kind:    paneSidebar,
+			Caption: "files",
+			Width:   m.leftInnerWidth(),
+			Focused: m.Focus == FocusSidebar,
+		})
+	}
+	caption := "glow preview"
+	switch m.Mode {
+	case ModeEdit:
+		caption = "editor"
+	case ModeSource:
+		caption = "source selection"
+	}
+	specs = append(specs, paneSpec{
+		Kind:    paneContent,
+		Caption: caption,
+		Width:   m.rightInnerWidth(),
+		Focused: m.Focus == FocusEditor || m.Focus == FocusPreview,
+	})
+	if m.Chat.Visible {
+		chatCaption := "llm chat"
+		if m.Focus == FocusChat {
+			chatCaption = "chat input"
+		}
+		specs = append(specs, paneSpec{
+			Kind:    paneChat,
+			Caption: chatCaption,
+			Width:   m.chatInnerWidth(),
+			Focused: m.Focus == FocusChat,
+		})
+	}
+	return specs
+}
+
+// paneCaptionIndent is how far the caption sits inside the top border.
+const paneCaptionIndent = 2
+
+// renderPaneBorder draws the top or bottom border row. Neighbouring panes share
+// a junction column, and every border segment is colored by the pane it belongs
+// to so the focused pane stands out.
+func (m Model) renderPaneBorder(top bool) string {
+	panes := m.panes()
+	var b strings.Builder
+	for i, pane := range panes {
+		border, caption := paneStyles(pane.Focused)
+
+		corner := "└"
+		if top {
+			corner = "┌"
+		}
+		if i > 0 {
+			corner = "┴"
+			if top {
+				corner = "┬"
+			}
+			// The junction belongs to whichever neighbour is focused.
+			if !pane.Focused && panes[i-1].Focused {
+				junction, _ := paneStyles(true)
+				border = junction
+			}
+		}
+		b.WriteString(border.Render(corner))
+
+		border, _ = paneStyles(pane.Focused)
+		label := ""
+		if top && pane.Caption != "" {
+			label = " " + pane.Caption + " "
+			if runewidth.StringWidth(label)+paneCaptionIndent > pane.Width {
+				label = ""
+			}
+		}
+		if label == "" {
+			b.WriteString(border.Render(strings.Repeat("─", pane.Width)))
+		} else {
+			rest := max(0, pane.Width-paneCaptionIndent-runewidth.StringWidth(label))
+			b.WriteString(border.Render(strings.Repeat("─", paneCaptionIndent)))
+			b.WriteString(caption.Render(label))
+			b.WriteString(border.Render(strings.Repeat("─", rest)))
+		}
+
+		if i == len(panes)-1 {
+			closing := "┘"
+			if top {
+				closing = "┐"
+			}
+			b.WriteString(border.Render(closing))
+		}
+	}
+	return b.String()
+}
+
+// renderPaneRow draws one body row across all panes, sharing vertical borders.
+func (m Model) renderPaneRow(row int) string {
+	panes := m.panes()
+	var b strings.Builder
+	for i, pane := range panes {
+		style, _ := paneStyles(pane.Focused)
+		if i > 0 && !pane.Focused && panes[i-1].Focused {
+			style, _ = paneStyles(true)
+		}
+		b.WriteString(style.Render("│"))
+		b.WriteString(m.paneContent(pane, row))
+		if i == len(panes)-1 {
+			style, _ = paneStyles(pane.Focused)
+			b.WriteString(style.Render("│"))
+		}
+	}
+	return b.String()
+}
+
+func (m Model) paneContent(pane paneSpec, row int) string {
+	switch pane.Kind {
+	case paneSidebar:
+		return m.renderListLine(row)
+	case paneChat:
+		return strings.Repeat(" ", panePadLeft) + m.renderChatLine(row)
+	default:
+		if m.rawBufferMode() {
+			return strings.Repeat(" ", panePadLeft) + m.renderEditorLine(row)
+		}
+		return strings.Repeat(" ", panePadLeft) + m.renderPreviewLine(row)
+	}
+}
+
+// paneStyles returns the border and caption styles for a pane.
+func paneStyles(focused bool) (border lipgloss.Style, caption lipgloss.Style) {
+	if focused {
+		return stylePaneActive, stylePaneCaptionActive
+	}
+	return styleDim, styleDim
+}
+
+// renderToolbar shows the path of the current document above the footer.
+func (m Model) renderToolbar() string {
+	return fitANSI(" "+styleDim.Render(m.pathLine()), m.Width)
 }
 
 func (m Model) renderHeader() string {
@@ -1677,7 +2057,7 @@ func (m Model) renderHeader() string {
 	if d := m.currentDoc(); d != nil {
 		doc = d.Rel
 	}
-	line := fmt.Sprintf("%s %s%s %s %s %s", styleTitle.Render("glowed"), mode, dirty, styleDim.Render(focusName(m.Focus)), styleDim.Render(m.Root), styleDim.Render(doc))
+	line := fmt.Sprintf("%s %s%s %s %s", styleTitle.Render("glowed"), mode, dirty, styleDim.Render(focusName(m.Focus)), styleDim.Render(doc))
 	return fitANSI(line, m.Width)
 }
 
@@ -1707,32 +2087,6 @@ func renderSearchQuery(query string, focused bool) string {
 	return query + cursor
 }
 
-func (m Model) renderSeparator() string {
-	rightTitle := " glow preview "
-	if m.Mode == ModeEdit {
-		rightTitle = " editor "
-	} else if m.Mode == ModeSource {
-		rightTitle = " source selection "
-	}
-	parts := []string{}
-	if m.SidebarVisible {
-		leftTitle := " files "
-		left := fitPlain(leftTitle+strings.Repeat("─", max(0, m.leftWidth()-runewidth.StringWidth(leftTitle))), m.leftWidth())
-		parts = append(parts, left)
-	}
-	right := fitPlain(rightTitle+strings.Repeat("─", max(0, m.rightWidth()-runewidth.StringWidth(rightTitle))), m.rightWidth())
-	parts = append(parts, right)
-	if m.Chat.Visible {
-		chatTitle := " llm chat "
-		if m.Focus == FocusChat {
-			chatTitle = " chat input "
-		}
-		chat := fitPlain(chatTitle+strings.Repeat("─", max(0, m.chatWidth()-runewidth.StringWidth(chatTitle))), m.chatWidth())
-		parts = append(parts, chat)
-	}
-	return styleDim.Render(strings.Join(parts, "┬"))
-}
-
 func (m Model) renderListLine(row int) string {
 	idx := m.ListScroll + row
 	rows := m.SidebarRows
@@ -1740,7 +2094,7 @@ func (m Model) renderListLine(row int) string {
 		rows = m.buildSidebarRows()
 	}
 	if idx >= len(rows) {
-		return fitPlain("", m.leftWidth())
+		return fitPlain("", m.leftInnerWidth())
 	}
 	sidebarRow := rows[idx]
 	prefix := "  "
@@ -1775,7 +2129,7 @@ func (m Model) renderListLine(row int) string {
 		}
 		lineText = prefix + indent + "  " + label + styleDim.Render(tags+snippet)
 	}
-	line := fitPlain(lineText, m.leftWidth())
+	line := fitPlain(lineText, m.leftInnerWidth())
 	if idx == m.SidebarSelected {
 		return styleReverse.Render(stripANSI(line))
 	}
@@ -1783,11 +2137,8 @@ func (m Model) renderListLine(row int) string {
 }
 
 func (m Model) renderPreviewLine(row int) string {
-	w := m.rightWidth()
-	if row == 0 {
-		return fitPlain(m.pathLine(), w)
-	}
-	idx := m.PreviewScroll + row - 1
+	w := m.contentTextWidth()
+	idx := m.PreviewScroll + row
 	if idx >= len(m.PreviewLines) {
 		return fitPlain("", w)
 	}
@@ -1798,23 +2149,20 @@ func (m Model) renderPreviewLine(row int) string {
 }
 
 func (m Model) renderEditorLine(row int) string {
-	w := m.rightWidth()
-	if row == 0 {
-		return fitPlain(m.pathLine(), w)
-	}
-	idx := m.Editor.ScrollY + row - 1
+	w := m.contentTextWidth()
+	idx := m.Editor.ScrollY + row
 	if idx >= len(m.Editor.Lines) {
 		return fitPlain("", w)
 	}
 	line := m.Editor.Lines[idx]
 	selStart, selEnd, selected := m.editorSelectionForLine(idx)
 	cursor := m.Mode == ModeEdit && m.Focus == FocusEditor && idx == m.Editor.CY && !m.hasEditorSelection()
-	out := renderEditorVisibleLine(line, m.Editor.ScrollX, m.editorTextWidth(), m.Editor.CX, cursor, selStart, selEnd, selected)
+	out := renderEditorVisibleLine(line, m.Editor.ScrollX, m.editorTextWidth(), m.Editor.CX, cursor, selStart, selEnd, selected, m.Highlight[idx])
 	return fitPlain(out, w)
 }
 
 func (m Model) renderChatLine(row int) string {
-	w := m.chatWidth()
+	w := max(1, m.chatInnerWidth()-panePadLeft)
 	if row == 0 {
 		path := "no file"
 		if d := m.currentDoc(); d != nil {
@@ -1884,31 +2232,109 @@ func (m *Model) scrollChatToBottom() {
 	m.Chat.Scroll = max(0, len(m.chatLines())-m.chatBodyHeight())
 }
 
-func (m Model) renderFooter() string {
-	parts := []string{}
-	x := 0
+// footerEntry is one hint in the footer bar.
+type footerEntry struct {
+	Key    string
+	Label  string
+	Action string // empty for hints that are not clickable
+}
+
+func (e footerEntry) plain() string {
+	return strings.TrimSpace(e.Key + " " + e.Label)
+}
+
+// footerEntries returns the hints for the current mode. Edit mode has its own
+// set because the browse bindings are not active while editing.
+func (m Model) footerEntries() []footerEntry {
+	if m.Mode == ModeEdit {
+		return m.editFooterEntries()
+	}
+	entries := []footerEntry{}
 	for _, action := range m.Cfg.Footer.Actions {
 		label := labelForAction(action)
 		if label == "" {
 			continue
 		}
-		if len(parts) > 0 {
-			sep := styleDim.Render(" · ")
-			parts = append(parts, sep)
-			x += 3
+		entries = append(entries, footerEntry{Key: m.footerKey(action), Label: label, Action: action})
+	}
+	return entries
+}
+
+func (m Model) editFooterEntries() []footerEntry {
+	if m.SidebarVisible && m.Focus == FocusSidebar {
+		return []footerEntry{
+			{Key: "↑↓", Label: "select"},
+			{Key: "enter", Label: "open"},
+			{Key: "shift+tab", Label: "editor"},
+			{Key: "ctrl+b", Label: "hide sidebar", Action: "toggleSidebar"},
 		}
-		plain := m.footerPlainText(action, label)
-		key := m.footerKey(action)
-		styled := plain
-		if key != "" {
-			suffix := strings.TrimSpace(strings.TrimPrefix(plain, key))
-			styled = styleCyan.Render(key)
-			if suffix != "" {
-				styled += " " + suffix
+	}
+	entries := []footerEntry{
+		{Key: m.Cfg.Keys["save"], Label: "save", Action: "save"},
+		{Key: m.Cfg.Keys["undo"], Label: "undo", Action: "undo"},
+		{Key: "opt+←→", Label: "word"},
+		{Key: "cmd+⌫", Label: "del line"},
+		{Key: "opt+a", Label: "select all", Action: "selectAll"},
+		{Key: "cmd+c", Label: "copy"},
+		{Key: "ctrl+b", Label: "sidebar"},
+		{Key: "esc", Label: "cancel", Action: "cancelEdit"},
+	}
+	out := entries[:0:0]
+	for _, e := range entries {
+		if e.Key == "" {
+			continue
+		}
+		out = append(out, e)
+	}
+	return dropHintsToFit(out, m.Width)
+}
+
+// dropHintsToFit removes non-clickable hints from the end until the bar fits
+// the terminal width, so the actionable entries stay readable on narrow panes.
+func dropHintsToFit(entries []footerEntry, width int) []footerEntry {
+	if width <= 0 {
+		return entries
+	}
+	total := func() int {
+		w := 0
+		for i, e := range entries {
+			if i > 0 {
+				w += 3
+			}
+			w += runewidth.StringWidth(e.plain())
+		}
+		return w
+	}
+	for total() > width {
+		dropped := false
+		for i := len(entries) - 1; i >= 0; i-- {
+			if entries[i].Action == "" {
+				entries = append(entries[:i], entries[i+1:]...)
+				dropped = true
+				break
+			}
+		}
+		if !dropped {
+			break
+		}
+	}
+	return entries
+}
+
+func (m Model) renderFooter() string {
+	parts := []string{}
+	for _, entry := range m.footerEntries() {
+		if len(parts) > 0 {
+			parts = append(parts, styleDim.Render(" · "))
+		}
+		styled := entry.plain()
+		if entry.Key != "" {
+			styled = styleCyan.Render(entry.Key)
+			if entry.Label != "" {
+				styled += " " + entry.Label
 			}
 		}
 		parts = append(parts, styled)
-		x += runewidth.StringWidth(plain)
 	}
 	line := strings.Join(parts, "")
 	if m.Status != "" {
@@ -1920,17 +2346,15 @@ func (m Model) renderFooter() string {
 func (m Model) buildFooterButtons() []footerButton {
 	buttons := []footerButton{}
 	x := 0
-	for _, action := range m.Cfg.Footer.Actions {
-		label := labelForAction(action)
-		if label == "" {
-			continue
-		}
-		if len(buttons) > 0 {
+	for i, entry := range m.footerEntries() {
+		if i > 0 {
 			x += 3
 		}
-		plain := m.footerPlainText(action, label)
-		buttons = append(buttons, footerButton{Action: action, Start: x, End: x + runewidth.StringWidth(plain) - 1})
-		x += runewidth.StringWidth(plain)
+		width := runewidth.StringWidth(entry.plain())
+		if entry.Action != "" {
+			buttons = append(buttons, footerButton{Action: entry.Action, Start: x, End: x + width - 1})
+		}
+		x += width
 	}
 	return buttons
 }
@@ -1958,56 +2382,88 @@ func (m Model) pathLine() string {
 	return "Path: " + m.Root
 }
 
+// Panes are drawn as boxes standing side by side, sharing their vertical edges:
+// N panes occupy N+1 border columns. The *InnerWidth functions return the text
+// area of a pane, the *Width functions the columns it owns including borders.
+
+func (m Model) paneBorderColumns() int {
+	n := 1 // the content pane is always there
+	if m.SidebarVisible {
+		n++
+	}
+	if m.Chat.Visible {
+		n++
+	}
+	return n + 1
+}
+
+func (m Model) leftInnerWidth() int {
+	if !m.SidebarVisible {
+		return 0
+	}
+	return clamp(m.Width*34/100, 24, 52) - 2
+}
+
+func (m Model) chatInnerWidth() int {
+	if !m.Chat.Visible {
+		return 0
+	}
+	available := m.Width - m.leftWidth()
+	return clamp(available*32/100, 28, min(60, max(28, available-12))) - 2
+}
+
+func (m Model) rightInnerWidth() int {
+	return max(1, m.Width-m.paneBorderColumns()-m.leftInnerWidth()-m.chatInnerWidth())
+}
+
+// leftWidth is the column range the sidebar occupies, its left border and the
+// shared divider on its right included.
 func (m Model) leftWidth() int {
 	if !m.SidebarVisible {
 		return 0
 	}
-	return clamp(m.Width*34/100, 24, 52)
+	return m.leftInnerWidth() + 2
 }
 
-func (m Model) rightWidth() int {
-	available := m.Width
-	if m.SidebarVisible {
-		available -= m.leftWidth() + 1
-	}
-	if m.Chat.Visible {
-		available -= m.chatWidth() + 1
-	}
-	return max(10, available)
-}
-
+func (m Model) rightWidth() int { return m.rightInnerWidth() + 2 }
 func (m Model) chatWidth() int {
 	if !m.Chat.Visible {
 		return 0
 	}
-	available := m.Width
-	if m.SidebarVisible {
-		available -= m.leftWidth() + 1
-	}
-	return clamp(available*32/100, 28, min(60, max(28, available-12)))
+	return m.chatInnerWidth() + 2
 }
 
+// panePadLeft keeps the text of the content and chat panes off their border.
+const panePadLeft = 1
+
+// rightTextStartX is the first column of the content pane's text, the border
+// and the padding column excluded.
+func (m Model) rightTextStartX() int { return max(1, m.leftWidth()) + panePadLeft }
+
+// contentTextWidth is the writable width of the content pane.
+func (m Model) contentTextWidth() int { return max(1, m.rightInnerWidth()-panePadLeft) }
+
+func (m Model) rightStartX() int { return m.rightTextStartX() }
+
+// chatStartX is where the chat region begins, on its shared divider.
 func (m Model) chatStartX() int {
 	if !m.Chat.Visible {
 		return m.Width
 	}
-	return m.rightStartX() + m.rightWidth() + 1
+	return m.rightTextStartX() + m.rightInnerWidth()
 }
 
-func (m Model) rightStartX() int {
-	if !m.SidebarVisible {
-		return 0
-	}
-	return m.leftWidth() + 1
-}
-
+// Row layout: header, search, pane top border, content, pane bottom border,
+// toolbar, footer.
 func (m Model) contentTop() int { return 3 }
 func (m Model) contentHeight() int {
-	return max(1, m.Height-5)
+	return max(1, m.Height-6)
 }
-func (m Model) previewBodyHeight() int { return max(1, m.contentHeight()-1) }
-func (m Model) editorTextHeight() int  { return max(1, m.contentHeight()-1) }
-func (m Model) editorTextWidth() int   { return max(1, m.rightWidth()-1) }
+func (m Model) paneBottomRow() int     { return m.contentTop() + m.contentHeight() }
+func (m Model) toolbarRow() int        { return m.paneBottomRow() + 1 }
+func (m Model) previewBodyHeight() int { return max(1, m.contentHeight()) }
+func (m Model) editorTextHeight() int  { return max(1, m.contentHeight()) }
+func (m Model) editorTextWidth() int   { return m.contentTextWidth() }
 
 func (m *Model) setStatus(s, kind string) {
 	m.Status = s
@@ -2155,21 +2611,20 @@ func labelForAction(action string) string {
 	}
 }
 
-func renderEditorVisibleLine(line string, scrollX, width, cursorIndex int, cursor bool, selStart, selEnd int, selected bool) string {
+func renderEditorVisibleLine(line string, scrollX, width, cursorIndex int, cursor bool, selStart, selEnd int, selected bool, spans []render.Span) string {
 	if selected {
-		return sliceByDisplayRangeStyled(line, scrollX, width, selStart, selEnd)
+		return sliceStyled(line, scrollX, width, spans, selStart, selEnd, true)
 	}
 	if !cursor {
-		return sliceByDisplayRange(line, scrollX, width)
+		return sliceStyled(line, scrollX, width, spans, 0, 0, false)
 	}
 	cursorCol := displayColumnForIndex(line, cursorIndex)
-	before := sliceByDisplayRange(line, scrollX, max(0, cursorCol-scrollX))
-	afterStart := cursorCol
-	afterWidth := max(0, width-runewidth.StringWidth(before)-1)
-	after := sliceByDisplayRange(line, afterStart, afterWidth)
 	if cursorCol < scrollX || cursorCol >= scrollX+width {
-		return sliceByDisplayRange(line, scrollX, width)
+		return sliceStyled(line, scrollX, width, spans, 0, 0, false)
 	}
+	before := sliceStyled(line, scrollX, max(0, cursorCol-scrollX), spans, 0, 0, false)
+	afterWidth := max(0, width-xansi.StringWidth(before)-1)
+	after := sliceStyled(line, cursorCol, afterWidth, spans, 0, 0, false)
 	return before + styleCyan.Render("│") + after
 }
 
@@ -2197,49 +2652,35 @@ func indexFromDisplayColumn(line string, target int) int {
 }
 
 func sliceByDisplayRange(line string, start, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	end := start + width
-	col := 0
-	var b strings.Builder
-	for _, r := range line {
-		rw := runewidth.RuneWidth(r)
-		next := col + rw
-		if next <= start {
-			col = next
-			continue
-		}
-		if col >= end {
-			break
-		}
-		if col < start {
-			b.WriteString(" ")
-		} else if next <= end {
-			b.WriteRune(r)
-		} else {
-			break
-		}
-		col = next
-	}
-	return b.String()
+	return sliceStyled(line, start, width, nil, 0, 0, false)
 }
 
 func sliceByDisplayRangeStyled(line string, start, width int, selStart, selEnd int) string {
+	return sliceStyled(line, start, width, nil, selStart, selEnd, true)
+}
+
+// sliceStyled renders the display columns [start, start+width) of a line.
+// Syntax spans colorize runes; an active selection reverses them and wins over
+// any span color. Runes with the same appearance are emitted as one segment so
+// the output stays compact.
+func sliceStyled(line string, start, width int, spans []render.Span, selStart, selEnd int, selected bool) string {
 	if width <= 0 {
 		return ""
 	}
 	runes := []rune(line)
-	selStart = clamp(selStart, 0, len(runes))
-	selEnd = clamp(selEnd, 0, len(runes))
-	if selEnd < selStart {
-		selStart, selEnd = selEnd, selStart
+	if selected {
+		selStart = clamp(selStart, 0, len(runes))
+		selEnd = clamp(selEnd, 0, len(runes))
+		if selEnd < selStart {
+			selStart, selEnd = selEnd, selStart
+		}
 	}
 
 	end := start + width
 	col := 0
 	var b strings.Builder
 	var segment strings.Builder
+	segmentStyle := ""
 	segmentSelected := false
 	segmentOpen := false
 	flush := func() {
@@ -2247,19 +2688,23 @@ func sliceByDisplayRangeStyled(line string, start, width int, selStart, selEnd i
 			return
 		}
 		text := segment.String()
-		if segmentSelected {
+		switch {
+		case segmentSelected:
 			b.WriteString(styleReverse.Render(text))
-		} else {
+		case segmentStyle != "":
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(segmentStyle)).Render(text))
+		default:
 			b.WriteString(text)
 		}
 		segment.Reset()
 		segmentOpen = false
 	}
-	write := func(text string, selected bool) {
-		if segmentOpen && segmentSelected != selected {
+	write := func(text string, sel bool, style string) {
+		if segmentOpen && (segmentSelected != sel || segmentStyle != style) {
 			flush()
 		}
-		segmentSelected = selected
+		segmentSelected = sel
+		segmentStyle = style
 		segmentOpen = true
 		segment.WriteString(text)
 	}
@@ -2274,11 +2719,15 @@ func sliceByDisplayRangeStyled(line string, start, width int, selStart, selEnd i
 		if col >= end {
 			break
 		}
-		selected := i >= selStart && i < selEnd
+		sel := selected && i >= selStart && i < selEnd
+		style := ""
+		if !sel {
+			style = spanColorAt(spans, i)
+		}
 		if col < start {
-			write(" ", selected)
+			write(" ", sel, "")
 		} else if next <= end {
-			write(string(r), selected)
+			write(string(r), sel, style)
 		} else {
 			break
 		}
@@ -2286,6 +2735,16 @@ func sliceByDisplayRangeStyled(line string, start, width int, selStart, selEnd i
 	}
 	flush()
 	return b.String()
+}
+
+// spanColorAt returns the color of the span covering rune index i, if any.
+func spanColorAt(spans []render.Span, i int) string {
+	for _, s := range spans {
+		if i >= s.Start && i < s.End {
+			return s.Color
+		}
+	}
+	return ""
 }
 
 func lineLen(s string) int { return len([]rune(s)) }

@@ -17,8 +17,12 @@ func TestModelStartsWithSidebarHidden(t *testing.T) {
 	if m.SidebarVisible {
 		t.Fatal("SidebarVisible = true, want false on startup")
 	}
-	if m.Focus != FocusPreview {
-		t.Fatalf("Focus = %v, want FocusPreview", m.Focus)
+	// Edit is the default mode, so a project with documents starts in the editor.
+	if m.Focus != FocusEditor {
+		t.Fatalf("Focus = %v, want FocusEditor", m.Focus)
+	}
+	if m.Mode != ModeEdit {
+		t.Fatalf("Mode = %v, want ModeEdit", modeName(m.Mode))
 	}
 }
 

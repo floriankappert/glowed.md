@@ -174,17 +174,17 @@ func (m Model) previewPointFromMouse(x, y int, allowClamp bool) (selectionPoint,
 	if m.Mode != ModePreview || len(m.PreviewLines) == 0 {
 		return selectionPoint{}, false
 	}
-	textTop := m.contentTop() + 1
+	textTop := m.contentTop()
 	textBottom := m.contentTop() + m.contentHeight()
-	rightStart := m.rightStartX()
-	rightEnd := rightStart + m.rightWidth()
+	rightStart := m.rightTextStartX()
+	rightEnd := rightStart + m.rightInnerWidth()
 	if !allowClamp && (y < textTop || y >= textBottom || x < rightStart || x >= rightEnd) {
 		return selectionPoint{}, false
 	}
 	row := clamp(y, textTop, textBottom-1) - m.contentTop()
-	line := m.PreviewScroll + row - 1
+	line := m.PreviewScroll + row
 	line = clamp(line, 0, len(m.PreviewLines)-1)
-	visibleCol := clamp(x-rightStart, 0, m.rightWidth())
+	visibleCol := clamp(x-rightStart, 0, m.rightInnerWidth())
 	plain := stripANSI(m.PreviewLines[line])
 	col := indexFromDisplayColumn(plain, visibleCol)
 	return selectionPoint{Line: line, Col: col}, true
@@ -194,10 +194,10 @@ func (m Model) editorPointFromMouse(x, y int, allowClamp bool) (selectionPoint, 
 	if !m.rawBufferMode() || len(m.Editor.Lines) == 0 {
 		return selectionPoint{}, false
 	}
-	textTop := m.contentTop() + 1
+	textTop := m.contentTop()
 	textBottom := m.contentTop() + m.contentHeight()
-	rightStart := m.rightStartX()
-	rightEnd := rightStart + m.rightWidth()
+	rightStart := m.rightTextStartX()
+	rightEnd := rightStart + m.rightInnerWidth()
 	if !allowClamp {
 		if y < textTop || y >= textBottom || x < rightStart || x >= rightEnd {
 			return selectionPoint{}, false
@@ -205,7 +205,7 @@ func (m Model) editorPointFromMouse(x, y int, allowClamp bool) (selectionPoint, 
 	}
 
 	row := clamp(y, textTop, textBottom-1) - m.contentTop()
-	line := m.Editor.ScrollY + row - 1
+	line := m.Editor.ScrollY + row
 	line = clamp(line, 0, len(m.Editor.Lines)-1)
 
 	visibleCol := clamp(x-rightStart, 0, m.editorTextWidth())

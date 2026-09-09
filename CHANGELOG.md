@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Added word-wise and line-wise caret motion in edit mode (`opt+←→`, `cmd+←→`/`ctrl+a`/`ctrl+e`).
+- Added word-wise and line-wise deletion in edit mode (`opt+⌫`, `opt+⌦`, `cmd+⌫`/`ctrl+u`, `ctrl+k`).
+- Added keyboard text selection in edit mode with `shift` and `opt+shift` motion, plus `opt+a` to select the whole buffer; typing or deleting replaces an active selection.
+- Added syntax highlighting for fenced code blocks in edit and source mode, using the colors of the configured `preview.style`.
+- Added `ctrl+b` to toggle the sidebar in every mode, including edit mode where the browse bindings are unavailable.
+- Added `shift+tab` to move the focus between the content pane and the sidebar in every mode, opening the sidebar when it is hidden.
+- Added clipboard copy (`cmd+c` / `opt+c`) for the editor selection, copied as plain text.
+- Added paste at the caret (`cmd+v` / `opt+v`), replacing an active selection as a single undoable edit; pasted text may span multiple lines.
+- Added sidebar navigation and `enter` to open the selected document directly in edit mode, refusing the switch while the current buffer has unsaved changes.
+
+### Fixed
+
+- Pasted text is no longer dropped in edit mode; multi-line pastes previously failed the control-character filter entirely.
+- alt-modified keys no longer type their letter into the search field or the chat input.
+- Space can now be typed in edit mode; it arrives as its own key type and was previously dropped.
+- Escape sequences and other control runes no longer leak into the buffer in edit mode.
+
+### Changed
+
+- Panes are now drawn as fully bordered boxes that share their vertical edges, and the pane captions sit further inside the top border.
+- The focused pane is highlighted: its border and caption use the accent color.
+- The document path moved out of the pane body and the header into its own toolbar row directly above the footer, which gives every pane one more content row.
+- The footer bar now shows edit-mode bindings while editing instead of the browse bindings, and drops optional hints when the terminal is too narrow.
+- `opt+←` / `opt+→` now move by word instead of jumping to line start/end; use `cmd+←` / `cmd+→`, `home` / `end`, or `ctrl+a` / `ctrl+e` for line start/end.
+- Edit is now the default mode: glowed starts in the editor and documents opened from the sidebar open for editing; projects without documents still start in the preview.
+- Saving with `ctrl+s` now keeps the buffer open instead of switching to the preview.
+- `esc` in edit mode now clears an active selection first and only leaves edit mode when nothing is selected.
+
 ## v0.2.2 - 2026-05-18
 
 ### Added
