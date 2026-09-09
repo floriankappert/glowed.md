@@ -13,7 +13,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - The project is now published as **glowed.md** at `floriankappert/glowed.md`, and the welcome screen, header, `--help` and `--version` carry that name. The installed command, the Homebrew formula and the config paths keep the name `glowed`, so nothing about invoking or configuring it changes.
-- The Homebrew tap repository is now named `homebrew-tap`, which is the name `brew tap floriankappert/tap` resolves to directly instead of relying on a GitHub rename redirect.
+- The Homebrew tap is now `floriankappert/glowed.md`, so installing and upgrading use `brew install floriankappert/glowed.md/glowed`. Homebrew derives the repository name from the tap name, so the repository is `homebrew-glowed.md`; the previous name relied on a GitHub rename redirect to be reachable at all.
+- Note that the bare `brew upgrade glowed` is ambiguous while the upstream `khw1031/tap` is installed too, because both taps carry a formula named `glowed`. Use the fully-qualified name.
 
 ### Fixed
 

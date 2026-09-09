@@ -142,9 +142,10 @@ below is additional to upstream — no upstream feature was removed.
 - Published as **glowed.md** at
   [floriankappert/glowed.md](https://github.com/floriankappert/glowed.md). The
   installed command stays `glowed`, so nothing about invoking it changes.
-- Released through the `floriankappert/tap` Homebrew tap
-  ([floriankappert/homebrew-tap](https://github.com/floriankappert/homebrew-tap)),
-  with the upstream tap left untouched.
+- Released through the `floriankappert/glowed.md` Homebrew tap
+  ([floriankappert/homebrew-glowed.md](https://github.com/floriankappert/homebrew-glowed.md)),
+  with the upstream tap left untouched. Homebrew derives the repository name
+  from the tap name, so the repository must carry the `homebrew-` prefix.
 - Version numbers carry the `-floriankappert.N` suffix so a fork build is never
   mistaken for an upstream release.
 
@@ -205,7 +206,15 @@ The distribution model is a custom Homebrew tap first, not Homebrew core.
 This fork is distributed through its own tap:
 
 ```bash
-brew install floriankappert/tap/glowed
+brew install floriankappert/glowed.md/glowed
+```
+
+Use the fully-qualified name. Both taps carry a formula named `glowed`, so the
+bare `brew install glowed` or `brew upgrade glowed` is ambiguous whenever the
+upstream tap is installed alongside this one:
+
+```bash
+brew upgrade floriankappert/glowed.md/glowed
 ```
 
 The upstream build lives in the maintainer's tap:
@@ -503,7 +512,7 @@ The editor performs backup + atomic save, but this is still early software. Use 
 Homebrew tap namespaces are the recommended way to distinguish modified builds.
 
 - The same formula name, `glowed`, can exist in different taps.
-- For example, `khw1031/tap/glowed` and `floriankappert/tap/glowed` can both be distributed.
+- For example, `khw1031/tap/glowed` and `floriankappert/glowed.md/glowed` can both be distributed.
 - Users should install with the full tap path, such as `brew install someone/tap/glowed`, to avoid ambiguity.
 - You are encouraged to maintain and use your own tap/build freely for your workflow.
 - A modified build may install the binary as `glowed` for drop-in use, or as `glowed-<name>` if it should coexist with other builds.
