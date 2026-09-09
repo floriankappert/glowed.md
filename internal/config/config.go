@@ -8,15 +8,40 @@ import (
 )
 
 type Config struct {
-	Prefix     string            `json:"prefix"`
-	Keys       map[string]string `json:"keys"`
-	PrefixKeys map[string]string `json:"prefixKeys"`
-	Preview    PreviewConfig     `json:"preview"`
-	Footer     FooterConfig      `json:"footer"`
-	Scan       ScanConfig        `json:"scan"`
-	Mouse      MouseConfig       `json:"mouse"`
-	LLM        LLMConfig         `json:"llm"`
-	Defaults   DefaultsConfig    `json:"defaults"`
+	Prefix      string            `json:"prefix"`
+	Keys        map[string]string `json:"keys"`
+	PrefixKeys  map[string]string `json:"prefixKeys"`
+	Preview     PreviewConfig     `json:"preview"`
+	Footer      FooterConfig      `json:"footer"`
+	Scan        ScanConfig        `json:"scan"`
+	Mouse       MouseConfig       `json:"mouse"`
+	LLM         LLMConfig         `json:"llm"`
+	Defaults    DefaultsConfig    `json:"defaults"`
+	Connections ConnectionsConfig `json:"connections"`
+}
+
+// Backup modes for a document inside an Obsidian vault.
+const (
+	// BackupsOutside keeps the .bak copies out of the vault, so Obsidian
+	// neither shows them nor syncs them to other devices.
+	BackupsOutside = "outside"
+	// BackupsVault writes them next to the document, as glowed does elsewhere.
+	BackupsVault = "vault"
+	// BackupsOff writes none at all.
+	BackupsOff = "off"
+)
+
+// ConnectionsConfig holds the external tools glowed talks to.
+type ConnectionsConfig struct {
+	Obsidian ObsidianConfig `json:"obsidian"`
+}
+
+// ObsidianConfig configures the Obsidian vault connection. An empty Vault
+// means the vault is detected from the project root.
+type ObsidianConfig struct {
+	Enabled bool   `json:"enabled"`
+	Vault   string `json:"vault"`
+	Backups string `json:"backups"`
 }
 
 // DefaultsConfig holds the startup defaults the action menu can change.
@@ -83,6 +108,9 @@ func Default() Config {
 		},
 		Mouse:    MouseConfig{Enabled: true},
 		Defaults: DefaultsConfig{EditMode: true, SidebarVisible: true},
+		Connections: ConnectionsConfig{
+			Obsidian: ObsidianConfig{Enabled: true, Backups: BackupsOutside},
+		},
 		LLM: LLMConfig{
 			// Off until the external session is configured: the launcher
 			// depends on a terminal and a CLI that may not be installed.
@@ -201,6 +229,27 @@ func mergeJSON(cfg *Config, b []byte) error {
 			_ = json.Unmarshal(rawSidebar, &cfg.Defaults.SidebarVisible)
 		}
 	}
+	if v, ok := raw["connections"]; ok {
+		var c map[string]json.RawMessage
+		if err := json.Unmarshal(v, &c); err != nil {
+			return err
+		}
+		if rawObsidian, ok := c["obsidian"]; ok {
+			var o map[string]json.RawMessage
+			if err := json.Unmarshal(rawObsidian, &o); err != nil {
+				return err
+			}
+			if rawEnabled, ok := o["enabled"]; ok {
+				_ = json.Unmarshal(rawEnabled, &cfg.Connections.Obsidian.Enabled)
+			}
+			if rawVault, ok := o["vault"]; ok {
+				_ = json.Unmarshal(rawVault, &cfg.Connections.Obsidian.Vault)
+			}
+			if rawBackups, ok := o["backups"]; ok {
+				_ = json.Unmarshal(rawBackups, &cfg.Connections.Obsidian.Backups)
+			}
+		}
+	}
 	if v, ok := raw["llm"]; ok {
 		var l map[string]json.RawMessage
 		if err := json.Unmarshal(v, &l); err != nil {
@@ -261,5 +310,11 @@ func normalize(cfg *Config) {
 	}
 	if cfg.LLM.MaxContextBytes <= 0 {
 		cfg.LLM.MaxContextBytes = 20 * 1024
+	}
+	switch cfg.Connections.Obsidian.Backups {
+	case BackupsOutside, BackupsVault, BackupsOff:
+	default:
+		// An unknown mode falls back to the one that keeps a vault clean.
+		cfg.Connections.Obsidian.Backups = BackupsOutside
 	}
 }

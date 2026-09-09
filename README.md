@@ -197,6 +197,27 @@ an editor and reshapes the surrounding UI.
 - The documented copy shortcut was corrected to `opt+c`: `cmd+c` cannot reach
   the program, because macOS routes it to Ghostty's *Edit > Copy* menu item.
 
+### Obsidian vaults
+
+- glowed.md recognises an Obsidian vault by walking up from the project root
+  looking for `.obsidian/`, and configures itself under *configuration →
+  connections → obsidian*: `enabled`, the vault name (empty means the detected
+  one, shown as such) and where backups go.
+- **Backups stay out of a vault.** glowed writes a `<name>.md.bak` beside every
+  document it saves or deletes. In a vault Obsidian shows those in its file
+  tree and its sync carries them to every other device, so inside a vault they
+  go to `~/.local/state/glowed/backups/<vault>/…` instead. `backups` cycles
+  through *outside* (the default), *vault* (the old behaviour) and *off*.
+- *open in Obsidian* opens the current note in the app. It uses the
+  `obsidian://` URI scheme, so no CLI has to be installed; the entry only
+  appears when a vault is detected and the connection is on.
+- `.obsidian/` and `.trash/` are excluded from the scan: plugins, templates and
+  deleted notes there hold `.md` files that are not the project's documents.
+- Obsidian Sync itself runs inside the Obsidian app and has no CLI or API, so
+  glowed cannot drive it. What it does instead is behave as a well-mannered
+  citizen of the vault: plain files, no stray backups, and Obsidian's own sync
+  picks the changes up.
+
 ### Defaults
 
 - Upstream's *source* action is labelled *copy exact markdown* in the menu: it
@@ -231,7 +252,12 @@ an editor and reshapes the surrounding UI.
   `internal/render/highlight.go`.
 - New files: `internal/render/highlight.go`, `internal/editor/motion.go`,
   `internal/app/editing.go`, `internal/app/splash.go`, `internal/app/files.go`,
-  each with tests.
+  `internal/app/obsidian.go` and the `internal/obsidian` package, each with
+  tests.
+- `editor.SaveFileAtomicWithBackupAt` puts the backup where the caller asks and
+  writes the document only once the backup is in place; an empty path skips it.
+- `config.SaveConnections` writes the `connections` object the same way
+  `SaveDefaults` writes `defaults`.
 - `docs.Document` carries the file's modification time, which the welcome
   screen orders by, and `docs.GuardNewPath` guards paths that do not exist yet.
 - `config.DefaultsConfig` holds the startup defaults, and `config.SaveDefaults`

@@ -9,6 +9,14 @@ import (
 // SaveFileAtomicWithBackup writes data to path via a same-directory temp file
 // and first stores the current on-disk contents at "<path>.bak".
 func SaveFileAtomicWithBackup(path string, data []byte) (backupPath string, err error) {
+	return SaveFileAtomicWithBackupAt(path, path+".bak", data)
+}
+
+// SaveFileAtomicWithBackupAt is SaveFileAtomicWithBackup with the backup
+// written where the caller asks — outside an Obsidian vault, for instance, so
+// the vault neither shows nor syncs it. An empty backupPath skips the backup.
+// The document is only written once the backup is safely in place.
+func SaveFileAtomicWithBackupAt(path, backupPath string, data []byte) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", err
@@ -18,13 +26,19 @@ func SaveFileAtomicWithBackup(path string, data []byte) (backupPath string, err 
 	}
 	mode := info.Mode().Perm()
 
-	old, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	backupPath = path + ".bak"
-	if err := writeFileAtomic(backupPath, old, mode); err != nil {
-		return "", fmt.Errorf("write backup %s: %w", backupPath, err)
+	if backupPath != "" {
+		old, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		if dir := filepath.Dir(backupPath); dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return "", fmt.Errorf("create backup directory %s: %w", dir, err)
+			}
+		}
+		if err := writeFileAtomic(backupPath, old, mode); err != nil {
+			return "", fmt.Errorf("write backup %s: %w", backupPath, err)
+		}
 	}
 	if err := writeFileAtomic(path, data, mode); err != nil {
 		return backupPath, err

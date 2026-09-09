@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.16 - 2026-09-09
+
+### Added
+
+- Added an Obsidian vault connection, configurable under *configuration → connections → obsidian*: `enabled`, the vault name (empty means the vault detected by walking up from the project root, shown as such) and where backups go. The submenu takes text through the same prompt row the filename uses.
+- Added *open in Obsidian*, which opens the current note in the app through the `obsidian://` URI scheme — no CLI has to be installed. The entry only appears when a vault is detected and the connection is on.
+- Added the `internal/obsidian` package: vault detection, the vault-relative path Obsidian addresses a note by, and the URIs.
+
+### Changed
+
+- **Backups stay out of an Obsidian vault.** glowed writes a `<name>.md.bak` beside every document it saves or deletes; in a vault Obsidian lists those in its file tree and its sync carries them to every device. Inside a vault they now go to `~/.local/state/glowed/backups/<vault>/…`, and `backups` cycles through *outside* (the default), *vault* (the previous behaviour) and *off*.
+- `.obsidian/` and `.trash/` are excluded from the Markdown scan: plugins, templates and deleted notes there hold `.md` files that are not the project's documents.
+- A submenu's title is now its own path rather than "actions · " plus the path, which pushed a deep path out of the box.
+
+### Fixed
+
+- Vault paths are symlink-resolved, and a note's path is resolved before it is measured against the vault. Without both, nothing inside a vault reached through a symlink looked like it belonged to it — on macOS `/var` is a symlink to `/private/var`, so the backup relocation and the note URI silently fell back or failed.
+
+### Note
+
+- Obsidian Sync runs inside the Obsidian app and has no CLI or API, so glowed cannot drive it. This release makes glowed a well-mannered citizen of a synced vault instead: plain files, no stray backups, nothing of Obsidian's own in the scan.
+
+
 ## v0.2.2-floriankappert.15 - 2026-09-09
 
 ### Added

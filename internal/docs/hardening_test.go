@@ -151,3 +151,38 @@ func TestScanHonoursTheSizeLimit(t *testing.T) {
 		t.Fatalf("report = %+v, want the size exclusion", report.Excluded)
 	}
 }
+
+// Obsidian keeps its settings and its trash in the vault; neither belongs in
+// the document list.
+func TestScanIgnoresObsidianInternals(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".obsidian/plugins/dataview/README.md")
+	write(".obsidian/templates/note.md")
+	write(".trash/deleted note.md")
+	write("keep.md")
+
+	list, report, err := ScanWithReport(root, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Rel != "keep.md" {
+		rels := []string{}
+		for _, d := range list {
+			rels = append(rels, d.Rel)
+		}
+		t.Fatalf("scanned %v, want only keep.md", rels)
+	}
+	// The exclusions are reported rather than silent.
+	if len(report.Excluded) == 0 {
+		t.Fatal("the report does not mention the excluded directories")
+	}
+}

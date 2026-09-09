@@ -293,6 +293,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case llmLaunchResultMsg:
 		m.handleLLMLaunchResult(msg)
 		return m, nil
+	case obsidianOpenResultMsg:
+		m.handleObsidianOpenResult(msg)
+		return m, nil
 	case watchDebouncedMsg:
 		return m.handleWatchDebounced(msg)
 	case pollTickMsg:
@@ -854,6 +857,14 @@ func (m Model) dispatch(action string) (Model, tea.Cmd) {
 		} else {
 			m.Focus = FocusPreview
 		}
+	case "openObsidian":
+		uri, err := m.obsidianNoteURI()
+		if err != nil {
+			m.setStatus(err.Error(), "warn")
+			return m, nil
+		}
+		m.setStatus("opening in Obsidian…", "info")
+		return m, openObsidianCmd(uri)
 	case "toggleMode":
 		if m.Mode != ModeEdit {
 			m.enterEditMode()
@@ -1184,7 +1195,12 @@ func (m *Model) saveEditor() {
 		m.setStatus("save blocked: "+err.Error(), "error")
 		return
 	}
-	backup, err := textedit.SaveFileAtomicWithBackup(file, []byte(strings.Join(m.Editor.Lines, "\n")))
+	backupPath, err := m.backupPathFor(file)
+	if err != nil {
+		m.setStatus("save blocked: "+err.Error(), "error")
+		return
+	}
+	backup, err := textedit.SaveFileAtomicWithBackupAt(file, backupPath, []byte(strings.Join(m.Editor.Lines, "\n")))
 	if err != nil {
 		m.setStatus("save failed: "+err.Error(), "error")
 		return
@@ -2762,7 +2778,7 @@ func statusStyle(kind string) lipgloss.Style {
 
 func isDirectAction(action string) bool {
 	switch action {
-	case "quit", "search", "edit", "sourceSelect", "openLLM", "toggleSidebar", "toggleMode", "save", "undo", "redo", "refresh", "nextFocus", "open":
+	case "quit", "search", "edit", "sourceSelect", "openLLM", "toggleSidebar", "toggleMode", "openObsidian", "save", "undo", "redo", "refresh", "nextFocus", "open":
 		return true
 	default:
 		return false

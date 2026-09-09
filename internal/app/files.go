@@ -12,6 +12,7 @@ import (
 
 	"github.com/khw1031/glowed/internal/config"
 	"github.com/khw1031/glowed/internal/docs"
+	"github.com/khw1031/glowed/internal/obsidian"
 )
 
 // promptKind is what the toolbar prompt is currently asking for.
@@ -22,6 +23,7 @@ const (
 	promptNewFile
 	promptRename
 	promptDeleteConfirm
+	promptObsidianVault
 )
 
 // promptState is a single-line input rendered in the toolbar row. It owns the
@@ -61,6 +63,9 @@ const (
 	menuSubmenu
 	menuToggleEditDefault
 	menuToggleSidebarDefault
+	menuToggleObsidian
+	menuSetObsidianVault
+	menuCycleObsidianBackups
 )
 
 type menuEntry struct {
@@ -102,7 +107,18 @@ func (m Model) menuEntries() []menuEntry {
 	case "configuration":
 		return []menuEntry{
 			{Label: "defaults", Kind: menuSubmenu, Key: "›"},
+			{Label: "connections", Kind: menuSubmenu, Key: "›"},
 			{Label: "hotkeys", Kind: menuSubmenu, Key: "›"},
+		}
+	case "configuration · connections":
+		return []menuEntry{
+			{Label: "obsidian", Kind: menuSubmenu, Key: "›"},
+		}
+	case "configuration · connections · obsidian":
+		return []menuEntry{
+			{Label: "enabled", Key: onOff(m.Cfg.Connections.Obsidian.Enabled), Kind: menuToggleObsidian},
+			{Label: "vault", Key: m.obsidianVaultLabel(), Kind: menuSetObsidianVault},
+			{Label: "backups", Key: m.Cfg.Connections.Obsidian.Backups, Kind: menuCycleObsidianBackups},
 		}
 	case "configuration · hotkeys":
 		// A reference list: every row is a hint, so there is nothing to select.
@@ -121,13 +137,21 @@ func (m Model) menuEntries() []menuEntry {
 			{Label: "quit", Key: m.footerKey("quit"), Kind: menuDispatch, Action: "quit"},
 		}
 	}
-	return []menuEntry{
+	entries := []menuEntry{
 		{Label: "new file", Key: "ctrl+n", Kind: menuNewFile},
 		{Label: "edit filename", Kind: menuRename},
 		{Label: "<> sidebar", Key: "ctrl+t", Kind: menuDispatch, Action: "toggleSidebar"},
 		m.modeEntry(),
 		{Label: "go home", Kind: menuGoHome, Gap: true},
 	}
+	if _, ok := m.obsidianVault(); ok {
+		entries = append(entries, menuEntry{
+			Label:  "open in Obsidian",
+			Kind:   menuDispatch,
+			Action: "openObsidian",
+		})
+	}
+	return entries
 }
 
 // modeEntry names the mode it switches to, with the key that does the same.
@@ -136,6 +160,44 @@ func (m Model) modeEntry() menuEntry {
 		return menuEntry{Label: "Preview", Key: "esc", Kind: menuDispatch, Action: "toggleMode"}
 	}
 	return menuEntry{Label: "Edit", Key: m.footerKey("edit"), Kind: menuDispatch, Action: "toggleMode"}
+}
+
+// obsidianVaultLabel is what the submenu shows for the vault setting: the
+// configured name, or the detected one marked as such.
+func (m Model) obsidianVaultLabel() string {
+	if name := m.Cfg.Connections.Obsidian.Vault; name != "" {
+		return name
+	}
+	if vault, ok := obsidian.Detect(m.Root); ok {
+		return vault.Name + " (detected)"
+	}
+	return "none"
+}
+
+// nextBackupMode cycles the three modes in the order they escalate: out of the
+// vault, into it, none at all.
+func nextBackupMode(mode string) string {
+	switch mode {
+	case config.BackupsOutside:
+		return config.BackupsVault
+	case config.BackupsVault:
+		return config.BackupsOff
+	default:
+		return config.BackupsOutside
+	}
+}
+
+// saveObsidian writes the connection settings and reports where they went.
+func (m *Model) saveObsidian(next config.ObsidianConfig) {
+	connections := m.Cfg.Connections
+	connections.Obsidian = next
+	path, err := config.SaveConnections(connections)
+	if err != nil {
+		m.setStatus("save failed: "+err.Error(), "error")
+		return
+	}
+	m.Cfg.Connections = connections
+	m.setStatus(fmt.Sprintf("saved the obsidian connection to %s", shortenHome(path)), "success")
 }
 
 // deleteEntry is destructive, so it sits at the bottom, separated from the rest.
@@ -323,6 +385,11 @@ func (m *Model) handlePromptKey(msg tea.KeyMsg) tea.Cmd {
 			m.createFileFromPrompt()
 		case promptRename:
 			m.renameFileFromPrompt()
+		case promptObsidianVault:
+			next := m.Cfg.Connections.Obsidian
+			next.Vault = strings.TrimSpace(m.Prompt.Input)
+			m.closePrompt()
+			m.saveObsidian(next)
 		}
 		return nil
 	case "backspace":
@@ -349,6 +416,8 @@ func (m Model) renderPrompt() string {
 		label = "enter filename: "
 	case promptRename:
 		label = "rename to: "
+	case promptObsidianVault:
+		label = "obsidian vault: "
 	case promptDeleteConfirm:
 		return fitANSI(" "+styleRed.Render("delete "+filepath.Base(m.Prompt.Target)+"? (y/N)"), m.Width)
 	}
@@ -457,10 +526,22 @@ func (m *Model) deleteCurrentFile() {
 		m.setStatus("delete failed: "+err.Error(), "error")
 		return
 	}
-	backup := path + ".bak"
-	if err := os.WriteFile(backup, body, 0o644); err != nil {
-		m.setStatus("delete failed, backup not written: "+err.Error(), "error")
+	backup, err := m.backupPathFor(path)
+	if err != nil {
+		m.setStatus("delete blocked: "+err.Error(), "error")
 		return
+	}
+	if backup != "" {
+		if dir := filepath.Dir(backup); dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				m.setStatus("delete failed, backup directory not created: "+err.Error(), "error")
+				return
+			}
+		}
+		if err := os.WriteFile(backup, body, 0o644); err != nil {
+			m.setStatus("delete failed, backup not written: "+err.Error(), "error")
+			return
+		}
 	}
 	if err := os.Remove(path); err != nil {
 		m.setStatus("delete failed: "+err.Error(), "error")
@@ -483,6 +564,10 @@ func (m *Model) deleteCurrentFile() {
 		m.openDocument()
 	} else {
 		m.reloadPreview()
+	}
+	if backup == "" {
+		m.setStatus("deleted "+rel, "success")
+		return
 	}
 	m.setStatus(fmt.Sprintf("deleted %s (backup %s)", rel, filepath.Base(backup)), "success")
 }
@@ -639,6 +724,21 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 				EditMode:       !m.Cfg.Defaults.EditMode,
 				SidebarVisible: m.Cfg.Defaults.SidebarVisible,
 			})
+		case menuToggleObsidian:
+			next := m.Cfg.Connections.Obsidian
+			next.Enabled = !next.Enabled
+			m.saveObsidian(next)
+		case menuCycleObsidianBackups:
+			next := m.Cfg.Connections.Obsidian
+			next.Backups = nextBackupMode(next.Backups)
+			m.saveObsidian(next)
+		case menuSetObsidianVault:
+			m.Prompt = promptState{
+				Active: true,
+				Kind:   promptObsidianVault,
+				Input:  m.Cfg.Connections.Obsidian.Vault,
+			}
+			m.setStatus("obsidian vault — empty means detect it, enter to apply", "info")
 		case menuToggleSidebarDefault:
 			m.saveDefaults(config.DefaultsConfig{
 				EditMode:       m.Cfg.Defaults.EditMode,
@@ -799,9 +899,11 @@ type menuRow struct {
 // menuBlock is the menu text, top to bottom: the runnable actions first, then
 // the keys the menu cannot run but that are worth knowing.
 func (m Model) menuBlock() []menuRow {
+	// A submenu is named by its path; only the top level is "actions". The
+	// prefix would push a deep path out of the box.
 	title := "actions"
 	if level := m.menuLevel(); level != "" {
-		title += " · " + level
+		title = level
 	}
 	rows := []menuRow{
 		{Kind: menuRowTitle, Label: title, Entry: -1},

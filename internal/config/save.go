@@ -16,11 +16,21 @@ func GlobalPath() string {
 	return filepath.Join(home, ".config", "glowed", "config.json")
 }
 
-// SaveDefaults writes the startup defaults into the global config file and
-// returns its path. Only the "defaults" object is touched: the file is merged
-// as raw JSON, so settings this build does not know about survive, and the
-// remaining defaults are not frozen into the file.
+// SaveDefaults writes the startup defaults into the global config file.
 func SaveDefaults(d DefaultsConfig) (string, error) {
+	return saveSection("defaults", d)
+}
+
+// SaveConnections writes the external-tool settings into the global config file.
+func SaveConnections(c ConnectionsConfig) (string, error) {
+	return saveSection("connections", c)
+}
+
+// saveSection writes one top-level object into the global config file and
+// returns its path. Only that object is touched: the file is merged as raw
+// JSON, so settings this build does not know about survive, and the rest of the
+// defaults are not frozen into the file.
+func saveSection(key string, value any) (string, error) {
 	path := GlobalPath()
 	if path == "" {
 		return "", fmt.Errorf("cannot locate the global config: HOME is not set")
@@ -38,11 +48,11 @@ func SaveDefaults(d DefaultsConfig) (string, error) {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
 
-	encoded, err := json.Marshal(d)
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		return "", err
 	}
-	raw["defaults"] = encoded
+	raw[key] = encoded
 
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {

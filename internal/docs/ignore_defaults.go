@@ -7,6 +7,11 @@ const (
 
 var defaultIgnorePatterns = []string{
 	".git/",
+	// Obsidian keeps its settings in .obsidian/ and its deleted notes in
+	// .trash/; plugins and templates there hold .md files that are not the
+	// project's documents.
+	".obsidian/",
+	".trash/",
 	".hg/",
 	".svn/",
 	"node_modules/",
