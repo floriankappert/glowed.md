@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.17 - 2026-09-09
+
+### Documentation
+
+- Added a FAQ entry on whether Obsidian has to be running: for Obsidian Sync to pick up what glowed saved, it does. Sync is part of the Obsidian application, and the application installs no background service — no LaunchAgent, no daemon, nothing registered with `launchctl` — so nothing watches the vault while it is closed. Obsidian's own bundled CLI says as much when the app is not running.
+- The entry also covers what happens to edits made while Obsidian is closed (they sit in the vault and are reconciled on its next start), the one case that produces a real conflict (the same note edited in glowed with Obsidian closed *and* on another device), and why *open in Obsidian* uses the `obsidian://` URI rather than the bundled CLI: the URI starts the app, the CLI requires it to be running already.
+- The vault section no longer claims that Obsidian's sync picks changes up without naming that condition.
+
+
 ## v0.2.2-floriankappert.16 - 2026-09-09
 
 ### Added
