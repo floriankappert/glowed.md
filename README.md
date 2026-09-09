@@ -18,6 +18,9 @@ Everything below is additional to upstream — no upstream feature was removed.
 The fork branched off `v0.2.2` and is versioned `v0.2.2-floriankappert.N`, so a
 fork build is never mistaken for an upstream release.
 
+<img width="802" height="1010" alt="image" src="https://github.com/user-attachments/assets/694c8070-7167-4ddc-b13c-c89cff0ac025" />
+
+
 ## Install
 
 ```bash
