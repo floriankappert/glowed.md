@@ -49,6 +49,7 @@ const (
 	menuDelete
 	menuGoHome
 	menuOpenSelection
+	menuOpenDoc
 	menuDispatch
 )
 
@@ -59,6 +60,7 @@ type menuEntry struct {
 	Action string // dispatch action, for menuDispatch entries
 	Danger bool   // destructive: rendered apart, in red
 	Gap    bool   // preceded by a blank row
+	Path   string // absolute path, for menuOpenDoc entries
 }
 
 // menuEntries are the app actions, in display order. The welcome screen gets
@@ -112,7 +114,33 @@ func (m Model) menuActions() []menuEntry {
 		}
 		entries = append(entries, deleteEntry())
 	}
-	return filterMenuEntries(entries, m.Menu.Query)
+	matched := filterMenuEntries(entries, m.Menu.Query)
+	docs := m.menuDocEntries()
+	if len(docs) > menuDocMatches {
+		docs = docs[:menuDocMatches]
+	}
+	return append(matched, docs...)
+}
+
+// menuDocMatches caps how many documents the filter offers at once.
+const menuDocMatches = 7
+
+// menuDocEntries are the documents matching the filter, offered for opening.
+// Without a query the menu is an action list, not a file browser.
+func (m Model) menuDocEntries() []menuEntry {
+	query := strings.ToLower(strings.TrimSpace(m.Menu.Query))
+	if query == "" {
+		return nil
+	}
+	out := []menuEntry{}
+	for _, doc := range m.Docs {
+		if !strings.Contains(strings.ToLower(doc.Rel), query) &&
+			!strings.Contains(strings.ToLower(doc.Title), query) {
+			continue
+		}
+		out = append(out, menuEntry{Label: doc.Rel, Kind: menuOpenDoc, Path: doc.Abs})
+	}
+	return out
 }
 
 // filterMenuEntries keeps the entries whose label or key contains the query.
@@ -482,6 +510,8 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		case menuOpenSelection:
 			m.Menu.Active = false
 			m.openWelcomeSelection()
+		case menuOpenDoc:
+			m.openDocFromMenu(entry.Path)
 		case menuDispatch:
 			m.Menu.Active = false
 			next, cmd := m.dispatch(entry.Action)
@@ -501,6 +531,17 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		m.Menu.Selected = 0
 	}
 	return nil
+}
+
+// openDocFromMenu opens a document the filter matched.
+func (m *Model) openDocFromMenu(path string) {
+	if !m.selectPath(path) {
+		m.setStatus("cannot open "+m.relToRoot(path), "error")
+		return
+	}
+	m.Menu = menuState{}
+	m.Splash = false
+	m.enterEditMode()
 }
 
 // goHome returns to the welcome screen, which then owns the keyboard again
@@ -569,7 +610,15 @@ func (m Model) menuBlock() []menuRow {
 	if len(entries) == 0 {
 		return append(rows, menuRow{Kind: menuRowEmpty, Label: "no match", Entry: -1})
 	}
+	docSection := false
 	for i, entry := range entries {
+		if entry.Kind == menuOpenDoc && !docSection {
+			docSection = true
+			rows = append(rows,
+				menuRow{Kind: menuRowBlank, Entry: -1},
+				menuRow{Kind: menuRowSection, Label: "files", Entry: -1},
+			)
+		}
 		if entry.Danger || entry.Gap {
 			rows = append(rows, menuRow{Kind: menuRowBlank, Entry: -1})
 		}
@@ -579,6 +628,13 @@ func (m Model) menuBlock() []menuRow {
 			Key:    entry.Key,
 			Entry:  i,
 			Danger: entry.Danger,
+		})
+	}
+	if extra := len(m.menuDocEntries()) - menuDocMatches; extra > 0 {
+		rows = append(rows, menuRow{
+			Kind:  menuRowHint,
+			Label: fmt.Sprintf("+%d more", extra),
+			Entry: -1,
 		})
 	}
 	if hints := m.menuHints(); len(hints) > 0 {

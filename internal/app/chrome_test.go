@@ -145,15 +145,43 @@ func TestHeaderShowsPreviewMode(t *testing.T) {
 	}
 }
 
-func TestHeaderLogoIsYellow(t *testing.T) {
+// The bulb is two-tone: its core is brighter than its rim and base.
+func TestHeaderLogoIsBrighterInside(t *testing.T) {
 	previous := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
 
 	m := layoutModel(t, 90, 20)
-	first := strings.Split(m.View(), "\n")[0]
-	if !strings.Contains(first, styleYellow.Render(splashLogo[0])) {
-		t.Fatalf("header logo is not rendered yellow: %q", first)
+	rows := strings.Split(m.View(), "\n")
+
+	inner := styleLogoInner.Render("x")
+	innerPrefix := inner[:strings.Index(inner, "x")]
+	outer := styleLogoOuter.Render("x")
+	outerPrefix := outer[:strings.Index(outer, "x")]
+	if innerPrefix == outerPrefix {
+		t.Fatal("the two logo tones render identically")
+	}
+
+	// The glass rows carry both tones, the base only the outer one.
+	for _, row := range []int{0, 1} {
+		if !strings.Contains(rows[row], innerPrefix) || !strings.Contains(rows[row], outerPrefix) {
+			t.Fatalf("logo row %d is not two-tone: %q", row, rows[row])
+		}
+	}
+	if strings.Contains(rows[2], innerPrefix) {
+		t.Fatalf("the base should use the outer tone only: %q", rows[2])
+	}
+}
+
+func TestLogoMaskMatchesTheGlyphs(t *testing.T) {
+	if len(splashLogoInner) != len(splashLogo) {
+		t.Fatalf("mask has %d rows, logo has %d", len(splashLogoInner), len(splashLogo))
+	}
+	for i := range splashLogo {
+		if len([]rune(splashLogoInner[i])) != len([]rune(splashLogo[i])) {
+			t.Fatalf("mask row %d is %d runes, logo row is %d",
+				i, len([]rune(splashLogoInner[i])), len([]rune(splashLogo[i])))
+		}
 	}
 }
 

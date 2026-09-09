@@ -29,6 +29,34 @@ var splashLogo = []string{
 	" ▐█▌ ",
 }
 
+// splashLogoInner marks the cells that belong to the glowing core: "#" is drawn
+// in the brighter tone, everything else in the rim tone. The rows must line up
+// with splashLogo rune for rune.
+var splashLogoInner = []string{
+	".###.",
+	".###.",
+	".....",
+}
+
+// renderLogoLine draws one logo row, its core brighter than its rim.
+func renderLogoLine(row int) string {
+	if row < 0 || row >= len(splashLogo) {
+		return ""
+	}
+	glyphs := []rune(splashLogo[row])
+	mask := []rune(splashLogoInner[row])
+
+	var b strings.Builder
+	for i, glyph := range glyphs {
+		style := styleLogoOuter
+		if i < len(mask) && mask[i] == '#' {
+			style = styleLogoInner
+		}
+		b.WriteString(style.Render(string(glyph)))
+	}
+	return b.String()
+}
+
 // splashIndent is the left margin of the welcome block.
 const splashIndent = 2
 
@@ -109,7 +137,7 @@ func (m Model) renderSplash() string {
 
 	block := make([]string, 0, len(splashLogo)+maxRecentDocs+4)
 	for i, line := range splashLogo {
-		row := strings.Repeat(" ", splashIndent) + styleYellow.Render(line)
+		row := strings.Repeat(" ", splashIndent) + renderLogoLine(i)
 		row += strings.Repeat(" ", logoWidth-runewidth.StringWidth(line)+splashGap)
 		if i < len(info) {
 			row += info[i]

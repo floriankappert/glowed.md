@@ -161,7 +161,11 @@ var (
 	styleCyan    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
 	styleReverse = lipgloss.NewStyle().Reverse(true)
 	styleCursor  = lipgloss.NewStyle().Reverse(true)
-	styleHeading = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
+
+	// The lightbulb is two-tone: a pale core inside a yellow rim.
+	styleLogoOuter = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	styleLogoInner = lipgloss.NewStyle().Foreground(lipgloss.Color("229"))
+	styleHeading   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
 
 	// The action menu covers the content pane, so it carries its own backdrop.
 	styleMenuBackdrop = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor))
@@ -2169,8 +2173,8 @@ func (m Model) renderHeader() string {
 	beside := []string{styleTitle.Render(AppName), mode + dirty, third}
 
 	rows := make([]string, 0, headerRows+1)
-	for i, line := range splashLogo {
-		row := " " + styleYellow.Render(line) + "  "
+	for i := range splashLogo {
+		row := " " + renderLogoLine(i) + "  "
 		if i < len(beside) {
 			row += beside[i]
 		}

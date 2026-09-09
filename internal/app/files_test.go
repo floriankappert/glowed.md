@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1339,5 +1340,128 @@ func TestActionMenuShowsTheFilterRow(t *testing.T) {
 	text := menuText(t, m)
 	if !strings.Contains(text, "sid") {
 		t.Fatalf("filter row does not show the query:\n%s", text)
+	}
+}
+
+// --- the filter finds documents, not just actions ---
+
+func TestActionMenuFilterFindsDocuments(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "beta" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	entries := m.menuActions()
+	found := false
+	for _, entry := range entries {
+		if entry.Kind == menuOpenDoc && entry.Label == "beta.md" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("filter did not offer beta.md: %+v", entries)
+	}
+	text := menuText(t, m)
+	if !strings.Contains(text, "beta.md") {
+		t.Fatalf("document match not rendered:\n%s", text)
+	}
+	if strings.Contains(text, "no match") {
+		t.Fatalf("menu still reports no match:\n%s", text)
+	}
+	if !strings.Contains(text, "files") {
+		t.Fatalf("document matches are not labelled:\n%s", text)
+	}
+}
+
+func TestActionMenuOpensAMatchedDocument(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "gamma" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Menu.Active {
+		t.Fatal("menu stayed open")
+	}
+	if filepath.Base(m.Editor.File) != "gamma.md" {
+		t.Fatalf("editing %q, want gamma.md", m.Editor.File)
+	}
+	if m.Mode != ModeEdit {
+		t.Fatalf("Mode = %v, want ModeEdit", modeName(m.Mode))
+	}
+	if m.Menu.Query != "" {
+		t.Fatalf("Menu.Query = %q, want it cleared after opening", m.Menu.Query)
+	}
+}
+
+func TestActionMenuMatchesADocumentTitle(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	// alpha.md carries "# Alpha" as its title.
+	for _, r := range "Alph" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	for _, entry := range m.menuActions() {
+		if entry.Kind == menuOpenDoc && entry.Label == "alpha.md" {
+			return
+		}
+	}
+	t.Fatalf("title match not offered: %+v", m.menuActions())
+}
+
+// Without a query the menu is the action list, not a file browser.
+func TestActionMenuListsNoDocumentsWithoutAQuery(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, entry := range m.menuActions() {
+		if entry.Kind == menuOpenDoc {
+			t.Fatalf("document %q offered without a query", entry.Label)
+		}
+	}
+	if strings.Contains(menuText(t, m), "files") {
+		t.Fatal("files section shown without a query")
+	}
+}
+
+func TestActionMenuLimitsDocumentMatchesAndSaysHowMany(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	for i := 0; i < menuDocMatches+3; i++ {
+		name := filepath.Join(root, fmt.Sprintf("note-%02d.md", i))
+		if err := os.WriteFile(name, []byte("# Note\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := NewWithInitial(root, filepath.Join(root, "note-00.md"))
+	m.Width, m.Height = 100, 40
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "note" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	docs := 0
+	for _, entry := range m.menuActions() {
+		if entry.Kind == menuOpenDoc {
+			docs++
+		}
+	}
+	if docs != menuDocMatches {
+		t.Fatalf("%d document matches offered, want %d", docs, menuDocMatches)
+	}
+	if text := menuText(t, m); !strings.Contains(text, "3 more") {
+		t.Fatalf("menu does not say how many matches were left out:\n%s", text)
+	}
+}
+
+func TestActionMenuFilterFindsDocumentsOnTheWelcomeScreen(t *testing.T) {
+	m := welcomeMenuModel(t, "alpha.md", "beta.md")
+	for _, r := range "beta" {
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Splash {
+		t.Fatal("opening a match did not leave the welcome screen")
+	}
+	if filepath.Base(m.Editor.File) != "beta.md" {
+		t.Fatalf("editing %q, want beta.md", m.Editor.File)
 	}
 }

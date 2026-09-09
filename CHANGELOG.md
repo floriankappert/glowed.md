@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.10 - 2026-09-09
+
+### Added
+
+- The action-menu filter now finds documents, not just actions: it matches on path and title, lists the hits under a *files* heading, and `enter` opens the highlighted one in the editor. Typing `todo` offers `todo.md`. At most 7 matches are shown at once, with a note saying how many were left out.
+
+### Changed
+
+- The lightbulb mark is two-tone: its core is drawn in a pale yellow inside the yellow rim, so it reads as glowing rather than flat.
+
+
 ## v0.2.2-floriankappert.9 - 2026-09-09
 
 ### Added

@@ -101,6 +101,7 @@ an editor and reshapes the surrounding UI.
 
 ### Layout
 
+- The lightbulb mark is two-tone: a pale core inside a yellow rim.
 - The header above the panes carries the lightbulb mark, with the name beside
   it, the mode on the second row and the status message on the third, followed
   by a blank row that separates the block from the panes. The focus name and the
@@ -126,9 +127,11 @@ an editor and reshapes the surrounding UI.
   the file is created next to the current document, and `.md` is appended when
   the name carries no extension.
 - `ctrl+p` opens the action menu with the filter focused, so you can type
-  straight away: the entries are filtered by label and key as you type, `↑` /
-  `↓` move through the matches, `enter` runs the highlighted one, and `esc`
-  clears the filter before it closes the menu.
+  straight away. It filters the actions by label and key **and finds documents**
+  by path and title, listed under *files*: typing `todo` offers `todo.md`, and
+  `enter` opens it in the editor. `↑` / `↓` move through the matches and `esc`
+  clears the filter before it closes the menu. At most 7 document matches are
+  offered at once, with a note saying how many were left out.
 - The menu offers new file, edit filename, `<> sidebar`,
   `<> edit/preview`, go home, then the runnable actions of the current mode and
   a reference list of the keys it cannot run. Labels and keys sit in their own
