@@ -914,3 +914,68 @@ func TestActionMenuKeepsTheSelectionVisibleWhenScrolling(t *testing.T) {
 		t.Fatal("title not pinned")
 	}
 }
+
+// The menu box carries slack, so a label and its key never collide — some keys
+// use glyphs the terminal draws wider than their reported width.
+func TestActionMenuKeepsLabelAndKeyApart(t *testing.T) {
+	m := layoutModel(t, 120, 30)
+	m.Menu = menuState{Active: true}
+
+	checked := 0
+	for _, row := range m.menuBlock() {
+		if row.Key == "" {
+			continue
+		}
+		rendered := ""
+		for _, r := range menuRows(t, m) {
+			plain := stripANSI(r)
+			if strings.Contains(plain, row.Label) && strings.Contains(plain, row.Key) {
+				rendered = plain
+				break
+			}
+		}
+		if rendered == "" {
+			t.Fatalf("row %q / %q not rendered", row.Label, row.Key)
+		}
+		start := strings.Index(rendered, row.Label) + len(row.Label)
+		keyAt := strings.LastIndex(rendered, row.Key)
+		gap := runewidth.StringWidth(rendered[start:keyAt])
+		if gap < menuKeyGap {
+			t.Fatalf("row %q: only %d columns between label and key %q, want at least %d",
+				strings.TrimSpace(rendered), gap, row.Key, menuKeyGap)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no row with a key was checked")
+	}
+}
+
+// The box is wider than its widest content row, so nothing sits flush against
+// the backdrop edge.
+func TestActionMenuBoxIsWiderThanItsContent(t *testing.T) {
+	m := layoutModel(t, 120, 30)
+	m.Menu = menuState{Active: true}
+
+	widest := 0
+	for _, row := range m.menuBlock() {
+		w := runewidth.StringWidth(row.Label)
+		if row.Key != "" {
+			w += menuKeyGap + runewidth.StringWidth(row.Key)
+		}
+		widest = max(widest, w)
+	}
+	for _, r := range menuRows(t, m) {
+		plain := stripANSI(r)
+		if !strings.Contains(plain, "select all") {
+			continue
+		}
+		start := strings.Index(plain, "select all")
+		// The row's own padding starts menuPadX columns before the label.
+		if start < menuPadX {
+			t.Fatalf("label starts at column %d, want at least %d of padding", start, menuPadX)
+		}
+		return
+	}
+	t.Fatalf("no entry row rendered for a %d-column block", widest)
+}

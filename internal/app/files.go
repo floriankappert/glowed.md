@@ -481,7 +481,12 @@ const menuBackdropColor = "233"
 
 // menuPadX is the horizontal padding inside a menu row, so the highlight of the
 // selected entry does not sit flush against its label.
-const menuPadX = 2
+const menuPadX = 3
+
+// menuSlack widens the box beyond its measured content. Some binding glyphs
+// (⌫, ←→) are drawn wider than their reported width, which would otherwise
+// squeeze the key against its label.
+const menuSlack = 3
 
 // menuRowKind decides how a menu row is styled and whether it can be selected.
 type menuRowKind int
@@ -564,7 +569,7 @@ func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
 }
 
 // menuKeyGap separates a label from its key inside a menu row.
-const menuKeyGap = 3
+const menuKeyGap = 4
 
 // renderMenuRow draws one row of the region the action menu covers: the content
 // pane in the main layout, the whole screen on the welcome screen. Every row
@@ -587,7 +592,7 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 		}
 		textWidth = max(textWidth, w)
 	}
-	blockWidth := min(width, textWidth+2*menuPadX)
+	blockWidth := min(width, textWidth+2*menuPadX+menuSlack)
 	left := max(0, (width-blockWidth)/2)
 	top := max(0, (height-len(block))/2)
 

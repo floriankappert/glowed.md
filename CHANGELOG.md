@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.6 - 2026-09-09
+
+### Changed
+
+- The header no longer repeats itself: row 1 is the name, row 2 the mode (with the unsaved marker), row 3 the status message. The focus name is gone, because the focused pane is already marked by its caption colour, and the current file is gone, because the status line and the bottom row already carry it.
+- A blank row now separates the header block from the panes.
+- The sidebar pane caption is *Files & Folders* instead of *files*.
+- The action menu box is wider than its measured content, so a binding like `cmd+⌫` can no longer be squeezed against its label — some glyphs are drawn wider than their reported width.
+
+
 ## v0.2.2-floriankappert.5 - 2026-09-09
 
 ### Added

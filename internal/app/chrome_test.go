@@ -27,8 +27,8 @@ func TestSearchRowHiddenWhileInactive(t *testing.T) {
 	if strings.Contains(strings.Join(rows, "\n"), "tag:foo") {
 		t.Fatalf("the frame still shows the search placeholder:\n%s", strings.Join(rows, "\n"))
 	}
-	if m.contentTop() != headerRows+1 {
-		t.Fatalf("contentTop = %d, want %d with the search row hidden", m.contentTop(), headerRows+1)
+	if m.contentTop() != headerRows+2 {
+		t.Fatalf("contentTop = %d, want %d with the search row hidden", m.contentTop(), headerRows+2)
 	}
 }
 
@@ -38,8 +38,8 @@ func TestSearchRowShownWhileFocused(t *testing.T) {
 	if !m.searchVisible() {
 		t.Fatal("searchVisible = false while the search has focus")
 	}
-	if m.contentTop() != headerRows+2 {
-		t.Fatalf("contentTop = %d, want %d with the search row shown", m.contentTop(), headerRows+2)
+	if m.contentTop() != headerRows+3 {
+		t.Fatalf("contentTop = %d, want %d with the search row shown", m.contentTop(), headerRows+3)
 	}
 	if !strings.Contains(viewRows(t, m)[m.searchRow()], "/") {
 		t.Fatal("search row missing while focused")
@@ -84,22 +84,62 @@ func TestClickOnHiddenSearchRowDoesNotFocusSearch(t *testing.T) {
 
 // --- header with the lightbulb above the panes ---
 
-func TestHeaderShowsLogoModeAndCurrentFile(t *testing.T) {
+func TestHeaderRowsCarryNameModeAndStatus(t *testing.T) {
 	m := layoutModel(t, 90, 20)
+	m.setStatus("editing alpha.md — ctrl+s save, esc cancel", "info")
 	rows := viewRows(t, m)
 	for i, want := range splashLogo {
 		if !strings.Contains(rows[i], strings.TrimSpace(want)) {
 			t.Fatalf("header row %d = %q, want the logo line %q", i, rows[i], want)
 		}
 	}
-	if !strings.Contains(rows[0], "glowed") || !strings.Contains(rows[0], "EDIT") {
-		t.Fatalf("header row 0 = %q, want the name and the mode", rows[0])
+
+	// Row 1: the name, and nothing else.
+	first := strings.TrimSpace(strings.ReplaceAll(rows[0], strings.TrimSpace(splashLogo[0]), ""))
+	if first != AppName {
+		t.Fatalf("header row 0 = %q, want just %q", first, AppName)
 	}
-	if !strings.Contains(rows[1], "alpha.md") {
-		t.Fatalf("header row 1 = %q, want the current file", rows[1])
+	// Row 2: the mode.
+	second := strings.TrimSpace(strings.ReplaceAll(rows[1], strings.TrimSpace(splashLogo[1]), ""))
+	if second != "EDIT" {
+		t.Fatalf("header row 1 = %q, want just the mode", second)
 	}
-	if m.contentTop() != headerRows+1 {
-		t.Fatalf("contentTop = %d, want %d", m.contentTop(), headerRows+1)
+	// Row 3: the status.
+	if !strings.Contains(rows[2], "editing alpha.md — ctrl+s save, esc cancel") {
+		t.Fatalf("header row 2 = %q, want the status", rows[2])
+	}
+}
+
+// The focus name duplicated the pane caption, and the file name duplicated both
+// the status line and the toolbar path.
+func TestHeaderDoesNotRepeatFocusOrFileName(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	m.setStatus("", "info")
+	rows := viewRows(t, m)
+	header := strings.Join(rows[:headerRows], "\n")
+	if strings.Contains(header, focusName(m.Focus)) {
+		t.Fatalf("header repeats the focus name %q:\n%s", focusName(m.Focus), header)
+	}
+	if strings.Contains(header, "alpha.md") {
+		t.Fatalf("header repeats the file name:\n%s", header)
+	}
+}
+
+func TestHeaderMarksAnUnsavedBuffer(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	m.Editor.Dirty = true
+	rows := viewRows(t, m)
+	if !strings.Contains(rows[1], "EDIT") || !strings.Contains(rows[1], "*") {
+		t.Fatalf("header row 1 = %q, want the mode and the unsaved marker", rows[1])
+	}
+}
+
+func TestHeaderShowsPreviewMode(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	m.Mode = ModePreview
+	m.Focus = FocusPreview
+	if got := viewRows(t, m)[1]; !strings.Contains(got, "PREVIEW") {
+		t.Fatalf("header row 1 = %q, want PREVIEW", got)
 	}
 }
 
@@ -122,8 +162,9 @@ func TestSearchRowSitsBelowTheHeaderBlock(t *testing.T) {
 	if !strings.Contains(rows[headerRows], "/") {
 		t.Fatalf("row %d = %q, want the search row below the header", headerRows, rows[headerRows])
 	}
-	if m.contentTop() != headerRows+2 {
-		t.Fatalf("contentTop = %d, want %d", m.contentTop(), headerRows+2)
+	// header + search + the blank row above the panes
+	if m.contentTop() != headerRows+3 {
+		t.Fatalf("contentTop = %d, want %d", m.contentTop(), headerRows+3)
 	}
 }
 

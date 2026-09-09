@@ -98,10 +98,14 @@ an editor and reshapes the surrounding UI.
 
 ### Layout
 
-- The header above the panes carries the lightbulb mark, with the name and mode
-  beside it, the current file on the second row and the status message on the
-  third. Below a terminal height of 12 rows it collapses into a single row, so
-  short splits still render a frame that fits.
+- The header above the panes carries the lightbulb mark, with the name beside
+  it, the mode on the second row and the status message on the third, followed
+  by a blank row that separates the block from the panes. The focus name and the
+  file name are deliberately absent: the focused pane is already highlighted by
+  its caption, and the path sits in the bottom row. Below a terminal height of
+  12 rows the header collapses into a single row, so short splits still render
+  a frame that fits.
+- The sidebar pane is captioned *Files & Folders*.
 - The sidebar is visible on launch instead of hidden.
 - The search row below the header only appears while the search has focus or a
   query is set, so an idle frame spends that row on content.

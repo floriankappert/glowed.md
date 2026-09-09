@@ -74,7 +74,7 @@ func TestPanesAreFullyBordered(t *testing.T) {
 func TestPaneCaptionIsIndented(t *testing.T) {
 	m := layoutModel(t, 90, 16)
 	top := viewRows(t, m)[m.contentTop()-1]
-	if !strings.HasPrefix(top, "┌"+strings.Repeat("─", paneCaptionIndent)+" files ") {
+	if !strings.HasPrefix(top, "┌"+strings.Repeat("─", paneCaptionIndent)+" Files & Folders ") {
 		t.Fatalf("caption not indented by %d: %q", paneCaptionIndent, top)
 	}
 }

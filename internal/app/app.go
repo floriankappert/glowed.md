@@ -1925,6 +1925,11 @@ func (m Model) View() string {
 		b.WriteString(m.renderSearch())
 		b.WriteByte('\n')
 	}
+	if m.logoHeader() {
+		// A blank row gives the header block room to breathe against the panes.
+		b.WriteString(fitANSI("", m.Width))
+		b.WriteByte('\n')
+	}
 	b.WriteString(m.renderPaneBorder(true))
 	b.WriteByte('\n')
 	for row := 0; row < m.contentHeight(); row++ {
@@ -1960,7 +1965,7 @@ func (m Model) panes() []paneSpec {
 	if m.SidebarVisible {
 		specs = append(specs, paneSpec{
 			Kind:    paneSidebar,
-			Caption: "files",
+			Caption: "Files & Folders",
 			Width:   m.leftInnerWidth(),
 			Focused: m.Focus == FocusSidebar,
 		})
@@ -2124,18 +2129,20 @@ func (m Model) renderHeader() string {
 	if d := m.currentDoc(); d != nil {
 		doc = d.Rel
 	}
-	title := fmt.Sprintf("%s %s%s %s", styleTitle.Render(AppName), mode, dirty, styleDim.Render(focusName(m.Focus)))
-
 	if !m.logoHeader() {
-		return fitANSI(title+" "+styleDim.Render(doc), m.Width)
+		compact := fmt.Sprintf("%s %s%s %s", styleTitle.Render(AppName), mode, dirty, styleDim.Render(doc))
+		return fitANSI(compact, m.Width)
 	}
 
 	status := ""
 	if m.Status != "" {
 		status = statusStyle(m.StatusKind).Render(m.Status)
 	}
-	beside := []string{title, styleDim.Render(doc), status}
-	rows := make([]string, 0, headerRows)
+	// The focus name would repeat the pane caption, and the file name would
+	// repeat both the status line and the toolbar path.
+	beside := []string{styleTitle.Render(AppName), mode + dirty, status}
+
+	rows := make([]string, 0, headerRows+1)
 	for i, line := range splashLogo {
 		row := " " + styleYellow.Render(line) + "  "
 		if i < len(beside) {
@@ -2475,8 +2482,9 @@ func (m Model) contentHeight() int {
 	return max(1, m.Height-m.chromeTopRows()-3)
 }
 
-// headerRows is the height of the logo header: the lightbulb, with the name and
-// mode beside it and the current file underneath.
+// headerRows is the height of the logo header: the lightbulb, with the name
+// beside it, the mode underneath and the status message on the third row. A
+// blank row follows it, which chromeTopRows accounts for.
 const headerRows = 3
 
 // minLogoHeaderHeight is the terminal height the logo header needs. Below it the
@@ -2487,11 +2495,13 @@ const minLogoHeaderHeight = 12
 // logoHeader reports whether the tall header is in use.
 func (m Model) logoHeader() bool { return m.Height >= minLogoHeaderHeight }
 
-// chromeTopRows counts the rows above the pane top border.
+// chromeTopRows counts the rows above the pane top border: the header, the
+// blank row that separates the logo block from the panes, and the search row
+// while it is in use.
 func (m Model) chromeTopRows() int {
 	rows := 1
 	if m.logoHeader() {
-		rows = headerRows
+		rows = headerRows + 1
 	}
 	if m.searchVisible() {
 		rows++
