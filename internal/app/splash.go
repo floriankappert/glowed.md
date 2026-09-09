@@ -86,6 +86,17 @@ func (m *Model) openWelcomeSelection() {
 // renderSplash draws the welcome screen: the lightbulb next to the version and
 // project root, with the recent documents underneath.
 func (m Model) renderSplash() string {
+	// The action menu owns the whole screen here, the way it owns the content
+	// pane in the main layout.
+	if m.Menu.Active {
+		rows := make([]string, 0, m.Height)
+		for i := 0; i < m.Height; i++ {
+			row, _ := m.renderMenuRow(m.Width, m.Height, i)
+			rows = append(rows, row)
+		}
+		return strings.Join(rows, "\n")
+	}
+
 	info := []string{
 		styleTitle.Render(AppName) + " " + styleDim.Render(Version),
 		styleDim.Render("Markdown browser/editor · Ghostty-first"),

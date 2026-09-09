@@ -239,30 +239,8 @@ func TestEditorEscClearsSelectionBeforeCancelling(t *testing.T) {
 	}
 }
 
-// --- Punkt 1: mode-aware footer ---
-
-func TestFooterShowsEditActionsInEditMode(t *testing.T) {
-	m := editModel([]string{"hello"}, 0, 0)
-	footer := stripANSI(m.renderFooter())
-	for _, want := range []string{"save", "select all", "cancel"} {
-		if !strings.Contains(footer, want) {
-			t.Fatalf("edit footer %q missing %q", footer, want)
-		}
-	}
-	if strings.Contains(footer, "quit") {
-		t.Fatalf("edit footer %q still offers quit", footer)
-	}
-}
-
-func TestFooterKeepsBrowseActionsInPreviewMode(t *testing.T) {
-	m := editModel([]string{"hello"}, 0, 0)
-	m.Mode = ModePreview
-	m.Focus = FocusPreview
-	footer := stripANSI(m.renderFooter())
-	if !strings.Contains(footer, "quit") || !strings.Contains(footer, "search") {
-		t.Fatalf("preview footer %q lost its browse actions", footer)
-	}
-}
+// The mode-aware hints live in the action menu; see
+// TestActionMenuShowsEditHintsInEditMode and its browse counterpart.
 
 func TestReplacingSelectionIsOneUndoStep(t *testing.T) {
 	m := press(t, editModel([]string{"hello world"}, 0, 0), tea.KeyMsg{Type: tea.KeyShiftRight, Alt: true})

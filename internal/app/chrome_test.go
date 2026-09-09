@@ -66,8 +66,8 @@ func TestSearchRowHiddenKeepsRowCountAndMouseMapping(t *testing.T) {
 		if len(rows) != m.Height {
 			t.Fatalf("focus %v: %d rows, want %d", focus, len(rows), m.Height)
 		}
-		if m.toolbarRow() != len(rows)-2 {
-			t.Fatalf("focus %v: toolbar at %d, want %d", focus, m.toolbarRow(), len(rows)-2)
+		if m.toolbarRow() != len(rows)-1 {
+			t.Fatalf("focus %v: toolbar at %d, want the last row %d", focus, m.toolbarRow(), len(rows)-1)
 		}
 	}
 }
@@ -168,5 +168,40 @@ func TestHeaderAndWelcomeShowTheProjectName(t *testing.T) {
 	m := layoutModel(t, 90, 20)
 	if !strings.Contains(viewRows(t, m)[0], AppName) {
 		t.Fatalf("header = %q, want it to carry %q", viewRows(t, m)[0], AppName)
+	}
+}
+
+// The third header row, next to the lightbulb, carries the status message.
+func TestHeaderThirdRowShowsTheStatus(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	m.setStatus("notes updated: 1356 markdown file(s) scanned", "success")
+	rows := viewRows(t, m)
+	if !strings.Contains(rows[2], "notes updated: 1356 markdown file(s) scanned") {
+		t.Fatalf("header row 2 = %q, want the status message", rows[2])
+	}
+	if !strings.Contains(rows[2], strings.TrimSpace(splashLogo[2])) {
+		t.Fatalf("header row 2 lost the logo line: %q", rows[2])
+	}
+}
+
+func TestHeaderThirdRowIsBlankWithoutAStatus(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	m.setStatus("", "info")
+	rows := viewRows(t, m)
+	if got := strings.TrimSpace(strings.ReplaceAll(rows[2], strings.TrimSpace(splashLogo[2]), "")); got != "" {
+		t.Fatalf("header row 2 = %q, want only the logo line", rows[2])
+	}
+}
+
+func TestHeaderStatusUsesTheStatusKindColor(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+
+	m := layoutModel(t, 90, 20)
+	m.setStatus("scanned", "success")
+	row := strings.Split(m.View(), "\n")[2]
+	if !strings.Contains(row, statusStyle("success").Render("scanned")) {
+		t.Fatalf("status not rendered with its kind color: %q", row)
 	}
 }

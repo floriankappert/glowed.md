@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.5 - 2026-09-09
+
+### Added
+
+- Added a "go home" entry to the action menu (`ctrl+p`), which returns to the welcome screen. It refuses to run while the buffer has unsaved changes.
+- The action menu now works on the welcome screen, where it covers the whole screen, targets the highlighted recent file and names it in its title. `ctrl+n` works there too, so an empty project is no longer a dead end.
+- The third header row, next to the lightbulb, now carries the status message in its status colour.
+
+### Changed
+
+- The footer hint bar is gone. Its bindings moved into the action menu: the runnable ones as selectable entries with their keys, the rest as a reference list. The bottom row is now the document path plus a `ctrl+p actions` pointer, and the layout gains a content row.
+- The action menu backdrop is much darker, so the overlay reads as dark as the editor instead of as a light grey slab.
+- On a pane too short for the whole menu, the reference keys are dropped first and the entry list scrolls to keep the selection visible, instead of silently clipping rows.
+- The README was cut down to what this fork actually changes: it now links the original project prominently, credits both authors at the top, and points at upstream for everything the fork does not alter. The inherited sections that only restated upstream's documentation — features, usage, search, configuration, limitations, screenshots and distribution boilerplate — were removed.
+
+### Fixed
+
+- Rename and delete no longer drop you into the editor when they were started from the welcome screen; the recent-file list refreshes and you stay home.
+
+
 ## v0.2.2-floriankappert.4 - 2026-09-09
 
 ### Added

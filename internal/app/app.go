@@ -41,12 +41,6 @@ const (
 	FocusChat
 )
 
-type footerButton struct {
-	Action string
-	Start  int
-	End    int
-}
-
 type editorState struct {
 	Lines           []string
 	CX              int
@@ -148,9 +142,8 @@ type Model struct {
 	Prompt promptState
 	Menu   menuState
 
-	Status        string
-	StatusKind    string
-	FooterButtons []footerButton
+	Status     string
+	StatusKind string
 
 	WatchFingerprint       string
 	WatchIgnoreFingerprint string
@@ -175,7 +168,7 @@ var (
 	styleMenuTitle    = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("11")).Bold(true)
 	styleMenuEntry    = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("15"))
 	styleMenuSelected = lipgloss.NewStyle().Background(lipgloss.Color("12")).Foreground(lipgloss.Color("0")).Bold(true)
-	styleFooter       = lipgloss.NewStyle().Background(lipgloss.Color("236"))
+	styleMenuHint     = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("8"))
 
 	stylePaneActive        = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 	stylePaneCaptionActive = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
@@ -253,8 +246,16 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 				cmd := m.handlePromptKey(key)
 				return m, cmd
 			}
+			if m.Menu.Active {
+				cmd := m.handleMenuKey(name)
+				return m, cmd
+			}
 			if name == "ctrl+n" {
 				m.openNewFilePrompt()
+				return m, nil
+			}
+			if name == "ctrl+p" {
+				m.toggleActionMenu()
 				return m, nil
 			}
 			m.handleWelcomeKey(name)
@@ -309,8 +310,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.Menu.Active {
-		m.handleMenuKey(key)
-		return m, nil
+		cmd := m.handleMenuKey(key)
+		return m, cmd
 	}
 	if key == "ctrl+n" {
 		m.openNewFilePrompt()
@@ -882,15 +883,6 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		}
 	}
 
-	if y == m.Height-1 && mouse.Action == tea.MouseActionPress {
-		for _, b := range m.buildFooterButtons() {
-			if x >= b.Start && x <= b.End {
-				next, cmd := m.dispatch(b.Action)
-				*m = next
-				return cmd
-			}
-		}
-	}
 	if m.searchVisible() && y == m.searchRow() && mouse.Action == tea.MouseActionPress {
 		m.Focus = FocusSearch
 		return nil
@@ -1942,8 +1934,6 @@ func (m Model) View() string {
 	b.WriteString(m.renderPaneBorder(false))
 	b.WriteByte('\n')
 	b.WriteString(m.renderToolbar())
-	b.WriteByte('\n')
-	b.WriteString(m.renderFooter())
 	return b.String()
 }
 
@@ -2086,7 +2076,7 @@ func (m Model) paneContent(pane paneSpec, row int) string {
 	case paneChat:
 		return strings.Repeat(" ", panePadLeft) + m.renderChatLine(row)
 	default:
-		if line, ok := m.renderMenuRow(pane.Width, row); ok {
+		if line, ok := m.renderMenuRow(pane.Width, m.contentHeight(), row); ok {
 			return line
 		}
 		if m.rawBufferMode() {
@@ -2104,13 +2094,16 @@ func paneStyles(focused bool) (border lipgloss.Style, caption lipgloss.Style) {
 	return styleDim, styleDim
 }
 
-// renderToolbar shows the path of the current document above the footer, or the
-// prompt while one is open.
+// renderToolbar is the bottom row: the path of the current document, or the
+// prompt while one is open. The right end points at the action menu, which is
+// where the key hints live.
 func (m Model) renderToolbar() string {
 	if m.Prompt.Active {
 		return m.renderPrompt()
 	}
-	return fitANSI(" "+styleDim.Render(m.pathLine()), m.Width)
+	hint := styleCyan.Render("ctrl+p") + styleDim.Render(" actions ")
+	left := fitANSI(" "+styleDim.Render(m.pathLine()), max(1, m.Width-xansi.StringWidth(stripANSI(hint))))
+	return left + hint
 }
 
 // renderHeader draws the rows above the panes: the lightbulb mark, the name and
@@ -2137,7 +2130,11 @@ func (m Model) renderHeader() string {
 		return fitANSI(title+" "+styleDim.Render(doc), m.Width)
 	}
 
-	beside := []string{title, styleDim.Render(doc)}
+	status := ""
+	if m.Status != "" {
+		status = statusStyle(m.StatusKind).Render(m.Status)
+	}
+	beside := []string{title, styleDim.Render(doc), status}
 	rows := make([]string, 0, headerRows)
 	for i, line := range splashLogo {
 		row := " " + styleYellow.Render(line) + "  "
@@ -2334,11 +2331,11 @@ func (e footerEntry) plain() string {
 	return strings.TrimSpace(e.Key + " " + e.Label)
 }
 
-// footerEntries returns the hints for the current mode. Edit mode has its own
+// modeEntries returns the hints for the current mode. Edit mode has its own
 // set because the browse bindings are not active while editing.
-func (m Model) footerEntries() []footerEntry {
+func (m Model) modeEntries() []footerEntry {
 	if m.Mode == ModeEdit {
-		return m.editFooterEntries()
+		return m.editModeEntries()
 	}
 	entries := []footerEntry{}
 	for _, action := range m.Cfg.Footer.Actions {
@@ -2351,7 +2348,7 @@ func (m Model) footerEntries() []footerEntry {
 	return entries
 }
 
-func (m Model) editFooterEntries() []footerEntry {
+func (m Model) editModeEntries() []footerEntry {
 	if m.SidebarVisible && m.Focus == FocusSidebar {
 		return []footerEntry{
 			{Key: "↑↓", Label: "select"},
@@ -2377,84 +2374,11 @@ func (m Model) editFooterEntries() []footerEntry {
 		}
 		out = append(out, e)
 	}
-	return dropHintsToFit(out, m.Width)
+	return out
 }
 
 // dropHintsToFit removes non-clickable hints from the end until the bar fits
 // the terminal width, so the actionable entries stay readable on narrow panes.
-func dropHintsToFit(entries []footerEntry, width int) []footerEntry {
-	if width <= 0 {
-		return entries
-	}
-	total := func() int {
-		w := 0
-		for i, e := range entries {
-			if i > 0 {
-				w += 3
-			}
-			w += runewidth.StringWidth(e.plain())
-		}
-		return w
-	}
-	for total() > width {
-		dropped := false
-		for i := len(entries) - 1; i >= 0; i-- {
-			if entries[i].Action == "" {
-				entries = append(entries[:i], entries[i+1:]...)
-				dropped = true
-				break
-			}
-		}
-		if !dropped {
-			break
-		}
-	}
-	return entries
-}
-
-func (m Model) renderFooter() string {
-	parts := []string{}
-	for _, entry := range m.footerEntries() {
-		if len(parts) > 0 {
-			parts = append(parts, styleDim.Render(" · "))
-		}
-		styled := entry.plain()
-		if entry.Key != "" {
-			styled = styleCyan.Render(entry.Key)
-			if entry.Label != "" {
-				styled += " " + entry.Label
-			}
-		}
-		parts = append(parts, styled)
-	}
-	line := strings.Join(parts, "")
-	if m.Status != "" {
-		line += styleDim.Render(" │ ") + statusStyle(m.StatusKind).Render(m.Status)
-	}
-	return styleFooter.Render(fitANSI(line, m.Width))
-}
-
-func (m Model) buildFooterButtons() []footerButton {
-	buttons := []footerButton{}
-	x := 0
-	for i, entry := range m.footerEntries() {
-		if i > 0 {
-			x += 3
-		}
-		width := runewidth.StringWidth(entry.plain())
-		if entry.Action != "" {
-			buttons = append(buttons, footerButton{Action: entry.Action, Start: x, End: x + width - 1})
-		}
-		x += width
-	}
-	return buttons
-}
-
-func (m Model) footerPlainText(action, label string) string {
-	key := m.footerKey(action)
-	plain := strings.TrimSpace(key + " " + label)
-	return plain
-}
 
 func (m Model) footerKey(action string) string {
 	if isDirectAction(action) {
@@ -2545,10 +2469,10 @@ func (m Model) chatStartX() int {
 }
 
 // Row layout: header, optional search, pane top border, content, pane bottom
-// border, toolbar, footer.
+// border, toolbar.
 func (m Model) contentTop() int { return m.chromeTopRows() + 1 }
 func (m Model) contentHeight() int {
-	return max(1, m.Height-m.chromeTopRows()-4)
+	return max(1, m.Height-m.chromeTopRows()-3)
 }
 
 // headerRows is the height of the logo header: the lightbulb, with the name and

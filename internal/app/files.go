@@ -38,8 +38,8 @@ type menuState struct {
 	Selected int
 }
 
-// menuAction is what an action-menu entry does. Most open a prompt, one goes
-// back to the welcome screen.
+// menuAction is what an action-menu entry does: the file actions, going back to
+// the welcome screen, or dispatching one of the mode's own actions.
 type menuAction int
 
 const (
@@ -47,21 +47,79 @@ const (
 	menuRename
 	menuDelete
 	menuGoHome
+	menuDispatch
 )
 
 type menuEntry struct {
-	Label string
-	Kind  menuAction
+	Label  string
+	Key    string
+	Kind   menuAction
+	Action string // dispatch action, for menuDispatch entries
 }
 
-// menuEntries are the menu actions, in display order.
-func menuEntries() []menuEntry {
-	return []menuEntry{
-		{Label: "new file", Kind: menuNewFile},
+// menuEntries are the file actions, in display order. "go home" is left out on
+// the welcome screen, where it would do nothing.
+func (m Model) menuEntries() []menuEntry {
+	entries := []menuEntry{
+		{Label: "new file", Key: "ctrl+n", Kind: menuNewFile},
 		{Label: "edit filename", Kind: menuRename},
 		{Label: "delete file", Kind: menuDelete},
-		{Label: "go home", Kind: menuGoHome},
 	}
+	if !m.Splash {
+		entries = append(entries, menuEntry{Label: "go home", Kind: menuGoHome})
+	}
+	return entries
+}
+
+// menuActions are every selectable entry: the file actions plus the actions the
+// current mode offers. The mode's hints used to sit in a footer bar; the ones
+// that can be run are runnable here.
+func (m Model) menuActions() []menuEntry {
+	entries := m.menuEntries()
+	if m.Splash {
+		return entries
+	}
+	for _, hint := range m.modeEntries() {
+		if hint.Action == "" {
+			continue
+		}
+		entries = append(entries, menuEntry{
+			Label:  hint.Label,
+			Key:    hint.Key,
+			Kind:   menuDispatch,
+			Action: hint.Action,
+		})
+	}
+	return entries
+}
+
+// menuHints are the mode's remaining hints: keys worth knowing that the menu
+// cannot run, such as the word-motion bindings.
+func (m Model) menuHints() []footerEntry {
+	if m.Splash {
+		return nil
+	}
+	hints := []footerEntry{}
+	for _, hint := range m.modeEntries() {
+		if hint.Action == "" {
+			hints = append(hints, hint)
+		}
+	}
+	return hints
+}
+
+// actionTargetDoc is the document the rename and delete actions act on: the
+// highlighted recent file on the welcome screen, the open document otherwise.
+func (m Model) actionTargetDoc() *docs.Document {
+	if !m.Splash {
+		return m.currentDoc()
+	}
+	recent := m.recentDocs()
+	if len(recent) == 0 {
+		return nil
+	}
+	doc := recent[clamp(m.SplashSelected, 0, len(recent)-1)]
+	return &doc
 }
 
 // --- prompt ---
@@ -74,7 +132,7 @@ func (m *Model) openNewFilePrompt() {
 
 func (m *Model) openRenamePrompt() {
 	m.Menu.Active = false
-	doc := m.currentDoc()
+	doc := m.actionTargetDoc()
 	if doc == nil {
 		m.setStatus("no document to rename", "warn")
 		return
@@ -89,7 +147,7 @@ func (m *Model) openRenamePrompt() {
 
 func (m *Model) openDeletePrompt() {
 	m.Menu.Active = false
-	doc := m.currentDoc()
+	doc := m.actionTargetDoc()
 	if doc == nil {
 		m.setStatus("no document to delete", "warn")
 		return
@@ -244,6 +302,10 @@ func (m *Model) renameFileFromPrompt() {
 	}
 
 	m.closePrompt()
+	if m.Splash {
+		m.refreshAfterFileChange(target, "renamed to "+m.relToRoot(target))
+		return
+	}
 	m.openPathForEditing(target, "renamed to "+m.relToRoot(target))
 }
 
@@ -272,6 +334,11 @@ func (m *Model) deleteCurrentFile() {
 	}
 
 	m.closePrompt()
+	if m.Splash {
+		m.SplashSelected = 0
+		m.refreshAfterFileChange("", fmt.Sprintf("deleted %s (backup %s)", rel, filepath.Base(backup)))
+		return
+	}
 	if m.Editor.File != "" && m.pathsMatch(m.Editor.File, path) {
 		m.Editor = editorState{Lines: []string{""}}
 		m.clearEditorSelection()
@@ -291,6 +358,29 @@ func (m *Model) deleteCurrentFile() {
 	m.setStatus(fmt.Sprintf("deleted %s (backup %s)", rel, filepath.Base(backup)), "success")
 }
 
+// refreshAfterFileChange rescans and keeps the current screen, selecting path
+// when one is given. It is the welcome-screen counterpart of
+// openPathForEditing, which would drop you into the editor.
+func (m *Model) refreshAfterFileChange(path, message string) {
+	if err := m.scanAndApply(true); err != nil {
+		m.setStatus(err.Error(), "error")
+		return
+	}
+	m.rebuildSidebarRows()
+	if path != "" {
+		m.selectPath(path)
+		if recent := m.recentDocs(); len(recent) > 0 {
+			for i, doc := range recent {
+				if m.pathsMatch(doc.Abs, path) {
+					m.SplashSelected = i
+					break
+				}
+			}
+		}
+	}
+	m.setStatus(message, "success")
+}
+
 // openPathForEditing rescans, selects path and opens it in the editor.
 func (m *Model) openPathForEditing(path, message string) {
 	if err := m.scanAndApply(true); err != nil {
@@ -302,6 +392,8 @@ func (m *Model) openPathForEditing(path, message string) {
 		m.setStatus(message+", but it is not in the scan results", "warn")
 		return
 	}
+	// Opening a document in the editor is what leaves the welcome screen.
+	m.Splash = false
 	m.enterEditMode()
 	m.setStatus(message, "success")
 }
@@ -336,8 +428,8 @@ func (m *Model) toggleActionMenu() {
 	m.setStatus("actions — ↑↓ select, enter run, esc close", "info")
 }
 
-func (m *Model) handleMenuKey(key string) {
-	entries := menuEntries()
+func (m *Model) handleMenuKey(key string) tea.Cmd {
+	entries := m.menuActions()
 	switch key {
 	case "esc", "ctrl+p":
 		m.Menu.Active = false
@@ -347,7 +439,8 @@ func (m *Model) handleMenuKey(key string) {
 	case "down", "j":
 		m.Menu.Selected = clamp(m.Menu.Selected+1, 0, len(entries)-1)
 	case "enter":
-		switch entries[clamp(m.Menu.Selected, 0, len(entries)-1)].Kind {
+		entry := entries[clamp(m.Menu.Selected, 0, len(entries)-1)]
+		switch entry.Kind {
 		case menuNewFile:
 			m.openNewFilePrompt()
 		case menuRename:
@@ -356,8 +449,14 @@ func (m *Model) handleMenuKey(key string) {
 			m.openDeletePrompt()
 		case menuGoHome:
 			m.goHome()
+		case menuDispatch:
+			m.Menu.Active = false
+			next, cmd := m.dispatch(entry.Action)
+			*m = next
+			return cmd
 		}
 	}
+	return nil
 }
 
 // goHome returns to the welcome screen, which then owns the keyboard again
@@ -375,59 +474,153 @@ func (m *Model) goHome() {
 	m.setStatus("home — ↑↓ select, enter open", "info")
 }
 
-// menuBackdropColor is the 256-color index the menu paints the content pane with.
-const menuBackdropColor = "236"
+// menuBackdropColor is the 256-color index the menu paints its pane with. It
+// sits just above black so the overlay reads as dark as the editor rather than
+// as a light grey slab.
+const menuBackdropColor = "233"
 
 // menuPadX is the horizontal padding inside a menu row, so the highlight of the
 // selected entry does not sit flush against its label.
 const menuPadX = 2
 
-// menuBlock is the menu text, top to bottom. The empty line separates the title
-// from the entries.
-func (m Model) menuBlock() []string {
-	block := []string{"actions", ""}
-	for _, entry := range menuEntries() {
-		block = append(block, entry.Label)
-	}
-	return block
+// menuRowKind decides how a menu row is styled and whether it can be selected.
+type menuRowKind int
+
+const (
+	menuRowTitle menuRowKind = iota
+	menuRowBlank
+	menuRowAction
+	menuRowSection
+	menuRowHint
+)
+
+// menuRow is one line of the menu block. Entry is the index into menuActions
+// for selectable rows and -1 for everything else.
+type menuRow struct {
+	Kind  menuRowKind
+	Label string
+	Key   string
+	Entry int
 }
 
-// renderMenuRow draws one content-pane row while the action menu is open. The
-// menu covers the whole pane, so every row belongs to it: the block of entries
-// is centered in the pane, and its lines are left-aligned with each other.
-func (m Model) renderMenuRow(width, row int) (string, bool) {
+// menuBlock is the menu text, top to bottom: the runnable actions first, then
+// the keys the menu cannot run but that are worth knowing.
+func (m Model) menuBlock() []menuRow {
+	title := "actions"
+	if m.Splash {
+		if doc := m.actionTargetDoc(); doc != nil {
+			title += " · " + doc.Rel
+		}
+	}
+	rows := []menuRow{
+		{Kind: menuRowTitle, Label: title, Entry: -1},
+		{Kind: menuRowBlank, Entry: -1},
+	}
+	for i, entry := range m.menuActions() {
+		rows = append(rows, menuRow{Kind: menuRowAction, Label: entry.Label, Key: entry.Key, Entry: i})
+	}
+	if hints := m.menuHints(); len(hints) > 0 {
+		rows = append(rows,
+			menuRow{Kind: menuRowBlank, Entry: -1},
+			menuRow{Kind: menuRowSection, Label: "keys", Entry: -1},
+		)
+		for _, hint := range hints {
+			rows = append(rows, menuRow{Kind: menuRowHint, Label: hint.Label, Key: hint.Key, Entry: -1})
+		}
+	}
+	return rows
+}
+
+// fitMenuBlock trims the block to the rows that are available. The hint section
+// goes first, because it is only reference material; if the runnable actions
+// still do not fit, the list scrolls to keep the selected one visible.
+func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
+	if height <= 0 {
+		return nil
+	}
+	for len(rows) > height && rows[len(rows)-1].Kind != menuRowAction {
+		rows = rows[:len(rows)-1]
+	}
+	if len(rows) <= height {
+		return rows
+	}
+
+	// Keep the title pinned and window the rest around the selection.
+	avail := max(1, height-1)
+	rest := rows[1:]
+	sel := 0
+	for i, row := range rest {
+		if row.Kind == menuRowAction && row.Entry == selected {
+			sel = i
+		}
+	}
+	start := clamp(sel-avail/2, 0, max(0, len(rest)-avail))
+	end := min(len(rest), start+avail)
+
+	out := make([]menuRow, 0, 1+end-start)
+	out = append(out, rows[0])
+	out = append(out, rest[start:end]...)
+	return out
+}
+
+// menuKeyGap separates a label from its key inside a menu row.
+const menuKeyGap = 3
+
+// renderMenuRow draws one row of the region the action menu covers: the content
+// pane in the main layout, the whole screen on the welcome screen. Every row
+// belongs to the menu, so the block of entries is centered in the region while
+// its lines stay left-aligned with each other.
+func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 	if !m.Menu.Active || width <= 0 {
 		return "", false
 	}
-	block := m.menuBlock()
+	block := fitMenuBlock(m.menuBlock(), height, m.Menu.Selected)
+	if len(block) == 0 {
+		return styleMenuBackdrop.Render(strings.Repeat(" ", width)), true
+	}
 
 	textWidth := 0
 	for _, line := range block {
-		textWidth = max(textWidth, runewidth.StringWidth(line))
+		w := runewidth.StringWidth(line.Label)
+		if line.Key != "" {
+			w += menuKeyGap + runewidth.StringWidth(line.Key)
+		}
+		textWidth = max(textWidth, w)
 	}
 	blockWidth := min(width, textWidth+2*menuPadX)
 	left := max(0, (width-blockWidth)/2)
-	top := max(0, (m.contentHeight()-len(block))/2)
+	top := max(0, (height-len(block))/2)
 
 	idx := row - top
 	if idx < 0 || idx >= len(block) {
 		return styleMenuBackdrop.Render(strings.Repeat(" ", width)), true
 	}
 
-	label := block[idx]
-	inner := strings.Repeat(" ", menuPadX) + label
+	line := block[idx]
+	style := styleMenuEntry
+	switch line.Kind {
+	case menuRowTitle:
+		style = styleMenuTitle
+	case menuRowSection, menuRowHint:
+		style = styleMenuHint
+	}
+	if line.Kind == menuRowAction && line.Entry == m.Menu.Selected {
+		style = styleMenuSelected
+	}
+
+	inner := strings.Repeat(" ", menuPadX) + line.Label
+	if line.Key != "" {
+		// The key is pushed to the right edge of the block.
+		pad := blockWidth - menuPadX - runewidth.StringWidth(inner) - runewidth.StringWidth(line.Key)
+		if pad < 1 {
+			pad = 1
+		}
+		inner += strings.Repeat(" ", pad) + line.Key
+	}
 	if pad := blockWidth - runewidth.StringWidth(inner); pad > 0 {
 		inner += strings.Repeat(" ", pad)
 	}
 	inner = xansi.Truncate(inner, blockWidth, "")
-
-	style := styleMenuEntry
-	switch {
-	case idx == 0:
-		style = styleMenuTitle
-	case idx-2 == m.Menu.Selected && idx >= 2:
-		style = styleMenuSelected
-	}
 
 	right := max(0, width-left-runewidth.StringWidth(inner))
 	return styleMenuBackdrop.Render(strings.Repeat(" ", left)) +

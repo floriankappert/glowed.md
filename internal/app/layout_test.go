@@ -100,7 +100,7 @@ func TestActivePaneIsHighlighted(t *testing.T) {
 	}
 }
 
-func TestPathMovedToToolbarAbovetheFooter(t *testing.T) {
+func TestPathSitsInTheToolbarRow(t *testing.T) {
 	m := layoutModel(t, 90, 16)
 	rows := viewRows(t, m)
 
@@ -108,8 +108,8 @@ func TestPathMovedToToolbarAbovetheFooter(t *testing.T) {
 	if !strings.Contains(toolbar, "Path: ") {
 		t.Fatalf("toolbar %q does not carry the path", toolbar)
 	}
-	if m.toolbarRow() != len(rows)-2 {
-		t.Fatalf("toolbar is at row %d, want directly above the footer at %d", m.toolbarRow(), len(rows)-2)
+	if m.toolbarRow() != len(rows)-1 {
+		t.Fatalf("toolbar is at row %d, want the last row %d", m.toolbarRow(), len(rows)-1)
 	}
 	for row := m.contentTop(); row < m.paneBottomRow(); row++ {
 		if strings.Contains(rows[row], "Path: ") {

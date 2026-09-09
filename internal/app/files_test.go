@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
 )
 
@@ -452,17 +453,19 @@ func TestActionMenuFillsTheContentPaneWithABackground(t *testing.T) {
 }
 
 func TestActionMenuBlockIsCenteredWithLeftAlignedText(t *testing.T) {
-	m := layoutModel(t, 90, 20)
+	m := layoutModel(t, 90, 30)
 	m.Menu = menuState{Active: true}
 	rows := menuRows(t, m)
 	for i, row := range rows {
 		rows[i] = stripANSI(row)
 	}
 
+	// Compare display columns, not byte offsets: the sidebar rows contain
+	// multi-byte runes, which would shift a byte index.
 	labelRow := func(label string) (int, int) {
 		for i, row := range rows {
 			if idx := strings.Index(row, label); idx >= 0 {
-				return i, idx
+				return i, runewidth.StringWidth(row[:idx])
 			}
 		}
 		t.Fatalf("menu label %q not rendered:\n%s", label, strings.Join(rows, "\n"))
@@ -473,8 +476,11 @@ func TestActionMenuBlockIsCenteredWithLeftAlignedText(t *testing.T) {
 	_, newCol := labelRow("new file")
 	_, editCol := labelRow("edit filename")
 	_, deleteCol := labelRow("delete file")
-	entries := menuEntries()
-	lastRow, lastCol := labelRow(entries[len(entries)-1].Label)
+	block := fitMenuBlock(m.menuBlock(), m.contentHeight(), m.Menu.Selected)
+	if len(block) != len(m.menuBlock()) {
+		t.Fatalf("setup: block does not fit, %d of %d rows", len(block), len(m.menuBlock()))
+	}
+	lastRow, lastCol := labelRow(block[len(block)-1].Label)
 
 	if titleCol != newCol || newCol != editCol || editCol != deleteCol || deleteCol != lastCol {
 		t.Fatalf("entries are not left-aligned on one column: %d/%d/%d/%d/%d", titleCol, newCol, editCol, deleteCol, lastCol)
@@ -538,8 +544,8 @@ func TestActionMenuHasGoHome(t *testing.T) {
 func TestGoHomeShowsTheWelcomeScreen(t *testing.T) {
 	m, _ := projectModel(t)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
-	for i := 0; i < len(menuEntries()); i++ {
-		if menuEntries()[m.Menu.Selected].Kind == menuGoHome {
+	for i := 0; i < len(m.menuEntries()); i++ {
+		if m.menuEntries()[m.Menu.Selected].Kind == menuGoHome {
 			break
 		}
 		m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
@@ -560,7 +566,7 @@ func TestGoHomeShowsTheWelcomeScreen(t *testing.T) {
 func TestGoHomeRefusesUnsavedChanges(t *testing.T) {
 	m, _ := projectModel(t)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
-	m.Menu = menuState{Active: true, Selected: goHomeIndex(t)}
+	m.Menu = menuState{Active: true, Selected: goHomeIndex(t, m)}
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Splash {
 		t.Fatal("go home dropped an unsaved buffer")
@@ -570,9 +576,9 @@ func TestGoHomeRefusesUnsavedChanges(t *testing.T) {
 	}
 }
 
-func goHomeIndex(t *testing.T) int {
+func goHomeIndex(t *testing.T, m Model) int {
 	t.Helper()
-	for i, entry := range menuEntries() {
+	for i, entry := range m.menuEntries() {
 		if entry.Kind == menuGoHome {
 			return i
 		}
@@ -584,7 +590,7 @@ func goHomeIndex(t *testing.T) int {
 // Leaving to the welcome screen and coming back must land on a real document.
 func TestGoHomeThenEnterReopensADocument(t *testing.T) {
 	m, _ := projectModel(t)
-	m.Menu = menuState{Active: true, Selected: goHomeIndex(t)}
+	m.Menu = menuState{Active: true, Selected: goHomeIndex(t, m)}
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.Splash {
 		t.Fatal("go home did not show the welcome screen")
@@ -596,5 +602,315 @@ func TestGoHomeThenEnterReopensADocument(t *testing.T) {
 	}
 	if m.Mode != ModeEdit || m.Editor.File == "" {
 		t.Fatalf("mode=%v file=%q, want a document open for editing", modeName(m.Mode), m.Editor.File)
+	}
+}
+
+// --- action menu on the welcome screen ---
+
+func welcomeMenuModel(t *testing.T, names ...string) Model {
+	t.Helper()
+	m := welcomeModel(t, names...)
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	if !m.Menu.Active {
+		t.Fatal("ctrl+p did not open the action menu on the welcome screen")
+	}
+	return m
+}
+
+func TestActionMenuOpensOnTheWelcomeScreen(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md", "two.md")
+	view := stripANSI(m.View())
+	for _, want := range []string{"actions", "new file", "edit filename", "delete file"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("welcome screen menu missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// "go home" is meaningless while already home.
+func TestWelcomeMenuOmitsGoHome(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md")
+	for _, entry := range m.menuEntries() {
+		if entry.Kind == menuGoHome {
+			t.Fatal("go home offered on the welcome screen")
+		}
+	}
+	if strings.Contains(stripANSI(m.View()), "go home") {
+		t.Fatal("go home rendered on the welcome screen")
+	}
+}
+
+func TestWelcomeMenuArrowsAndEscWork(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Menu.Selected != 1 {
+		t.Fatalf("Menu.Selected = %d, want 1", m.Menu.Selected)
+	}
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.Menu.Active {
+		t.Fatal("esc did not close the menu")
+	}
+	if !m.Splash {
+		t.Fatal("esc left the welcome screen")
+	}
+	// The recent-file list owns the arrows again.
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.SplashSelected != 0 {
+		t.Fatalf("SplashSelected = %d, want the single entry clamped at 0", m.SplashSelected)
+	}
+}
+
+// On the welcome screen the actions target the highlighted recent file, not
+// whatever the sidebar selection happens to be.
+func TestWelcomeMenuRenameTargetsTheHighlightedFile(t *testing.T) {
+	m := welcomeModel(t, "older.md", "newer.md")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown}) // second entry: older.md
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Prompt.Input != "older.md" {
+		t.Fatalf("Prompt.Input = %q, want older.md", m.Prompt.Input)
+	}
+}
+
+func TestWelcomeMenuRenameKeepsYouHome(t *testing.T) {
+	m := welcomeModel(t, "one.md", "two.md")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	for range m.Prompt.Input {
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "renamed.md" {
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if !m.Splash {
+		t.Fatal("rename left the welcome screen")
+	}
+	if _, err := os.Stat(filepath.Join(m.Root, "renamed.md")); err != nil {
+		t.Fatalf("file not renamed: %v", err)
+	}
+	if !strings.Contains(stripANSI(m.View()), "renamed.md") {
+		t.Fatal("recent list not refreshed after the rename")
+	}
+}
+
+func TestWelcomeMenuDeleteKeepsYouHome(t *testing.T) {
+	m := welcomeModel(t, "one.md", "two.md")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(toolbarText(m), "two.md") {
+		t.Fatalf("confirmation does not name the highlighted file: %q", toolbarText(m))
+	}
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+
+	if !m.Splash {
+		t.Fatal("delete left the welcome screen")
+	}
+	if _, err := os.Stat(filepath.Join(m.Root, "two.md")); err == nil {
+		t.Fatal("file not deleted")
+	}
+	if strings.Contains(stripANSI(m.View()), "two.md") {
+		t.Fatal("deleted file still listed")
+	}
+}
+
+func TestWelcomeMenuNewFileOpensTheEditor(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter}) // new file
+	for _, r := range "fresh" {
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Splash {
+		t.Fatal("creating a file did not leave the welcome screen")
+	}
+	if filepath.Base(m.Editor.File) != "fresh.md" {
+		t.Fatalf("editing %q, want fresh.md", m.Editor.File)
+	}
+}
+
+// --- the footer hints moved into the action menu ---
+
+// menuText returns the plain text of the whole menu overlay.
+func menuText(t *testing.T, m Model) string {
+	t.Helper()
+	m.Menu.Active = true
+	rows := []string{}
+	for i := 0; ; i++ {
+		row, ok := m.renderMenuRow(60, 24, i)
+		if !ok || i > 40 {
+			break
+		}
+		rows = append(rows, stripANSI(row))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func TestFooterRowIsGone(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	rows := viewRows(t, m)
+	if len(rows) != m.Height {
+		t.Fatalf("%d rows, want %d", len(rows), m.Height)
+	}
+	last := rows[len(rows)-1]
+	if !strings.Contains(last, "Path:") {
+		t.Fatalf("last row = %q, want the toolbar now that the footer is gone", last)
+	}
+	for _, row := range rows {
+		if strings.Contains(row, "ctrl+s save") {
+			t.Fatalf("footer hints still rendered: %q", row)
+		}
+	}
+}
+
+func TestToolbarKeepsTheActionMenuDiscoverable(t *testing.T) {
+	m := layoutModel(t, 90, 20)
+	toolbar := stripANSI(m.renderToolbar())
+	if !strings.Contains(toolbar, "ctrl+p") || !strings.Contains(toolbar, "actions") {
+		t.Fatalf("toolbar = %q, want a ctrl+p actions hint", toolbar)
+	}
+}
+
+func TestActionMenuShowsEditHintsInEditMode(t *testing.T) {
+	m := editModel([]string{"hello"}, 0, 0)
+	text := menuText(t, m)
+	for _, want := range []string{"save", "ctrl+s", "select all", "cancel", "word"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("edit menu missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "quit") {
+		t.Fatalf("edit menu still offers quit:\n%s", text)
+	}
+}
+
+func TestActionMenuShowsBrowseHintsInPreviewMode(t *testing.T) {
+	m := editModel([]string{"hello"}, 0, 0)
+	m.Mode = ModePreview
+	m.Focus = FocusPreview
+	text := menuText(t, m)
+	for _, want := range []string{"quit", "search"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("preview menu missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestActionMenuShowsSidebarHintsWhenSidebarFocused(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	text := menuText(t, m)
+	for _, want := range []string{"open", "editor"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("sidebar menu missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestActionMenuShowsTheKeyForAnEntry(t *testing.T) {
+	m, _ := projectModel(t)
+	text := menuText(t, m)
+	if !strings.Contains(text, "ctrl+n") {
+		t.Fatalf("menu does not show the new-file key:\n%s", text)
+	}
+}
+
+// A hint without an action is not selectable, so the selection never lands on it.
+func TestActionMenuSelectionOnlyVisitsRunnableEntries(t *testing.T) {
+	m, _ := projectModel(t)
+	m.Menu = menuState{Active: true}
+	entries := m.menuActions()
+	if len(entries) < 5 {
+		t.Fatalf("only %d runnable entries, expected the mode actions too", len(entries))
+	}
+	for i := 0; i < len(entries)+3; i++ {
+		if m.Menu.Selected < 0 || m.Menu.Selected >= len(entries) {
+			t.Fatalf("selection %d out of range for %d entries", m.Menu.Selected, len(entries))
+		}
+		m.handleMenuKey("down")
+	}
+	for _, e := range entries {
+		if e.Kind == menuDispatch && e.Action == "" {
+			t.Fatalf("entry %q is selectable but has no action", e.Label)
+		}
+	}
+}
+
+func TestActionMenuRunsAModeAction(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if !m.Editor.Dirty {
+		t.Fatal("setup: buffer not dirty")
+	}
+	m.Menu = menuState{Active: true}
+	for i, entry := range m.menuActions() {
+		if entry.Action == "save" {
+			m.Menu.Selected = i
+		}
+	}
+	m.handleMenuKey("enter")
+	if m.Editor.Dirty {
+		t.Fatalf("save from the menu did not save: %q", m.Status)
+	}
+	if m.Menu.Active {
+		t.Fatal("menu stayed open after running an action")
+	}
+}
+
+// A pane too short for the whole menu drops the reference hints first and never
+// loses a runnable action.
+func TestActionMenuFitsAShortPane(t *testing.T) {
+	// Tall enough for every action, too short for the hint section.
+	m := layoutModel(t, 90, 20)
+	m.Menu = menuState{Active: true}
+	full := m.menuBlock()
+	fitted := fitMenuBlock(full, m.contentHeight(), m.Menu.Selected)
+
+	if len(fitted) > m.contentHeight() {
+		t.Fatalf("fitted block has %d rows, pane has %d", len(fitted), m.contentHeight())
+	}
+	if len(fitted) >= len(full) {
+		t.Fatalf("setup: block already fits (%d rows in %d)", len(full), m.contentHeight())
+	}
+	for _, row := range full {
+		if row.Kind != menuRowAction {
+			continue
+		}
+		found := false
+		for _, kept := range fitted {
+			if kept.Entry == row.Entry && kept.Kind == menuRowAction {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("runnable action %q was dropped", row.Label)
+		}
+	}
+}
+
+// When even the actions do not fit, the selected one stays on screen.
+func TestActionMenuKeepsTheSelectionVisibleWhenScrolling(t *testing.T) {
+	m := layoutModel(t, 90, 14)
+	m.Menu = menuState{Active: true, Selected: len(m.menuActions()) - 1}
+	fitted := fitMenuBlock(m.menuBlock(), 5, m.Menu.Selected)
+	if len(fitted) > 5 {
+		t.Fatalf("fitted block has %d rows, want at most 5", len(fitted))
+	}
+	visible := false
+	for _, row := range fitted {
+		if row.Kind == menuRowAction && row.Entry == m.Menu.Selected {
+			visible = true
+		}
+	}
+	if !visible {
+		t.Fatalf("selected entry %d not visible in %+v", m.Menu.Selected, fitted)
+	}
+	if fitted[0].Kind != menuRowTitle {
+		t.Fatal("title not pinned")
 	}
 }

@@ -298,26 +298,8 @@ func TestSidebarClickRefusesToDropUnsavedChanges(t *testing.T) {
 	}
 }
 
-func TestFooterShowsSidebarHintsWhenSidebarFocused(t *testing.T) {
-	m, _ := projectModel(t)
-	m.Width = 100
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
-	footer := stripANSI(m.renderFooter())
-	for _, want := range []string{"open", "editor"} {
-		if !strings.Contains(footer, want) {
-			t.Fatalf("sidebar footer %q missing %q", footer, want)
-		}
-	}
-}
-
-func TestEditFooterMentionsSidebarToggle(t *testing.T) {
-	m, _ := projectModel(t)
-	m.Width = 120
-	footer := stripANSI(m.renderFooter())
-	if !strings.Contains(footer, "ctrl+b") {
-		t.Fatalf("edit footer %q does not mention ctrl+b", footer)
-	}
-}
+// The sidebar and edit-mode hints live in the action menu now; see
+// TestActionMenuShowsSidebarHintsWhenSidebarFocused.
 
 // --- sidebar toggle and focus work outside edit mode too ---
 
