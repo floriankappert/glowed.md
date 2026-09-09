@@ -239,7 +239,7 @@ func TestActionMenuRenamePrefillsTheCurrentName(t *testing.T) {
 func renamePrompt(t *testing.T, m Model) Model {
 	t.Helper()
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = selectMenuLabel(t, m, "edit filename")
 	return press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 }
 
@@ -306,8 +306,7 @@ func TestRenameRefusesUnsavedChanges(t *testing.T) {
 func deletePrompt(t *testing.T, m Model) Model {
 	t.Helper()
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = selectMenuLabel(t, m, "delete file")
 	return press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 }
 
@@ -978,4 +977,161 @@ func TestActionMenuBoxIsWiderThanItsContent(t *testing.T) {
 		return
 	}
 	t.Fatalf("no entry row rendered for a %d-column block", widest)
+}
+
+// --- delete sits apart at the bottom ---
+
+func TestActionMenuPutsDeleteLastBehindABlankRow(t *testing.T) {
+	m := layoutModel(t, 90, 30)
+	m.Menu = menuState{Active: true}
+
+	actions := m.menuActions()
+	if last := actions[len(actions)-1]; last.Kind != menuDelete {
+		t.Fatalf("last runnable entry is %q, want delete file", last.Label)
+	}
+
+	block := m.menuBlock()
+	deleteAt := -1
+	for i, row := range block {
+		if row.Kind == menuRowAction && row.Danger {
+			deleteAt = i
+		}
+	}
+	if deleteAt < 1 {
+		t.Fatalf("delete row not found in %+v", block)
+	}
+	if block[deleteAt-1].Kind != menuRowBlank {
+		t.Fatalf("row above delete is %v, want a blank row", block[deleteAt-1].Kind)
+	}
+	// No runnable action may follow it.
+	for _, row := range block[deleteAt+1:] {
+		if row.Kind == menuRowAction {
+			t.Fatalf("action %q rendered below delete file", row.Label)
+		}
+	}
+}
+
+func TestActionMenuRendersDeleteInRed(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+
+	m := layoutModel(t, 90, 30)
+	m.Menu = menuState{Active: true}
+	danger := styleMenuDanger.Render("x")
+	prefix := danger[:strings.Index(danger, "x")]
+	for _, row := range menuRows(t, m) {
+		if !strings.Contains(stripANSI(row), "delete file") {
+			continue
+		}
+		if !strings.Contains(row, prefix) {
+			t.Fatalf("delete row is not rendered in the danger colour: %q", row)
+		}
+		return
+	}
+	t.Fatal("delete row not rendered")
+}
+
+func TestActionMenuHighlightsSelectedDeleteAsDangerous(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+
+	m := layoutModel(t, 90, 30)
+	actions := m.menuActions()
+	m.Menu = menuState{Active: true, Selected: len(actions) - 1}
+	selected := styleMenuDangerSelected.Render("x")
+	prefix := selected[:strings.Index(selected, "x")]
+	for _, row := range menuRows(t, m) {
+		if strings.Contains(stripANSI(row), "delete file") && strings.Contains(row, prefix) {
+			return
+		}
+	}
+	t.Fatal("selected delete row does not use the danger highlight")
+}
+
+// Running it from the bottom of the list still asks for confirmation.
+func TestActionMenuDeleteFromTheBottomStillConfirms(t *testing.T) {
+	m, _ := projectModel(t)
+	m.Menu = menuState{Active: true, Selected: len(m.menuActions()) - 1}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.Prompt.Active || m.Prompt.Kind != promptDeleteConfirm {
+		t.Fatalf("no delete confirmation: prompt=%+v status=%q", m.Prompt, m.Status)
+	}
+}
+
+// --- toggle entries ---
+
+func TestActionMenuHasToggleEntries(t *testing.T) {
+	m, _ := projectModel(t)
+	text := menuText(t, m)
+	for _, want := range []string{"toggle sidebar", "toggle edit/preview"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("menu missing %q:\n%s", want, text)
+		}
+	}
+	// The old hint row for the sidebar would now say the same thing twice.
+	if strings.Count(text, "sidebar") != 1 {
+		t.Fatalf("sidebar mentioned more than once:\n%s", text)
+	}
+}
+
+func selectMenuLabel(t *testing.T, m Model, label string) Model {
+	t.Helper()
+	m.Menu = menuState{Active: true}
+	for i, entry := range m.menuActions() {
+		if entry.Label == label {
+			m.Menu.Selected = i
+			return m
+		}
+	}
+	t.Fatalf("menu entry %q not found", label)
+	return m
+}
+
+func TestActionMenuTogglesTheSidebar(t *testing.T) {
+	m, _ := projectModel(t)
+	before := m.SidebarVisible
+	m = selectMenuLabel(t, m, "toggle sidebar")
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.SidebarVisible == before {
+		t.Fatalf("SidebarVisible still %v", m.SidebarVisible)
+	}
+}
+
+func TestActionMenuTogglesEditAndPreview(t *testing.T) {
+	m, _ := projectModel(t)
+	if m.Mode != ModeEdit {
+		t.Fatalf("setup: mode = %v", modeName(m.Mode))
+	}
+	m = selectMenuLabel(t, m, "toggle edit/preview")
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode != ModePreview {
+		t.Fatalf("Mode = %v, want ModePreview", modeName(m.Mode))
+	}
+	m = selectMenuLabel(t, m, "toggle edit/preview")
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode != ModeEdit {
+		t.Fatalf("Mode = %v, want ModeEdit again", modeName(m.Mode))
+	}
+}
+
+// cancelEdit discards the buffer silently, so the toggle must not use it blindly.
+func TestActionMenuToggleRefusesToDropUnsavedChanges(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
+	if !m.Editor.Dirty {
+		t.Fatal("setup: buffer not dirty")
+	}
+	m = selectMenuLabel(t, m, "toggle edit/preview")
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode != ModeEdit {
+		t.Fatalf("Mode = %v, want the switch refused", modeName(m.Mode))
+	}
+	if m.StatusKind != "warn" {
+		t.Fatalf("StatusKind = %q, want warn: %q", m.StatusKind, m.Status)
+	}
+	if !m.Editor.Dirty {
+		t.Fatal("unsaved changes were dropped")
+	}
 }

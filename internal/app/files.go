@@ -55,42 +55,56 @@ type menuEntry struct {
 	Key    string
 	Kind   menuAction
 	Action string // dispatch action, for menuDispatch entries
+	Danger bool   // destructive: rendered apart, in red
 }
 
-// menuEntries are the file actions, in display order. "go home" is left out on
+// menuEntries are the app actions, in display order. "go home" is left out on
 // the welcome screen, where it would do nothing.
 func (m Model) menuEntries() []menuEntry {
 	entries := []menuEntry{
 		{Label: "new file", Key: "ctrl+n", Kind: menuNewFile},
 		{Label: "edit filename", Kind: menuRename},
-		{Label: "delete file", Kind: menuDelete},
 	}
 	if !m.Splash {
-		entries = append(entries, menuEntry{Label: "go home", Kind: menuGoHome})
+		entries = append(entries,
+			menuEntry{Label: "toggle sidebar", Key: "ctrl+b", Kind: menuDispatch, Action: "toggleSidebar"},
+			menuEntry{Label: "toggle edit/preview", Kind: menuDispatch, Action: "toggleMode"},
+			menuEntry{Label: "go home", Kind: menuGoHome},
+		)
 	}
 	return entries
 }
 
-// menuActions are every selectable entry: the file actions plus the actions the
-// current mode offers. The mode's hints used to sit in a footer bar; the ones
-// that can be run are runnable here.
+// deleteEntry is destructive, so it sits at the bottom, separated from the rest.
+func deleteEntry() menuEntry {
+	return menuEntry{Label: "delete file", Kind: menuDelete, Danger: true}
+}
+
+// menuActions are every selectable entry: the app actions, the actions the
+// current mode offers, and the destructive one last. The mode's hints used to
+// sit in a footer bar; the ones that can be run are runnable here.
 func (m Model) menuActions() []menuEntry {
 	entries := m.menuEntries()
-	if m.Splash {
-		return entries
-	}
-	for _, hint := range m.modeEntries() {
-		if hint.Action == "" {
-			continue
+	if !m.Splash {
+		offered := map[string]bool{}
+		for _, entry := range entries {
+			if entry.Action != "" {
+				offered[entry.Action] = true
+			}
 		}
-		entries = append(entries, menuEntry{
-			Label:  hint.Label,
-			Key:    hint.Key,
-			Kind:   menuDispatch,
-			Action: hint.Action,
-		})
+		for _, hint := range m.modeEntries() {
+			if hint.Action == "" || offered[hint.Action] {
+				continue
+			}
+			entries = append(entries, menuEntry{
+				Label:  hint.Label,
+				Key:    hint.Key,
+				Kind:   menuDispatch,
+				Action: hint.Action,
+			})
+		}
 	}
-	return entries
+	return append(entries, deleteEntry())
 }
 
 // menuHints are the mode's remaining hints: keys worth knowing that the menu
@@ -101,9 +115,14 @@ func (m Model) menuHints() []footerEntry {
 	}
 	hints := []footerEntry{}
 	for _, hint := range m.modeEntries() {
-		if hint.Action == "" {
-			hints = append(hints, hint)
+		if hint.Action != "" {
+			continue
 		}
+		// The sidebar hint would repeat the runnable "toggle sidebar" entry.
+		if hint.Label == "sidebar" {
+			continue
+		}
+		hints = append(hints, hint)
 	}
 	return hints
 }
@@ -502,10 +521,11 @@ const (
 // menuRow is one line of the menu block. Entry is the index into menuActions
 // for selectable rows and -1 for everything else.
 type menuRow struct {
-	Kind  menuRowKind
-	Label string
-	Key   string
-	Entry int
+	Kind   menuRowKind
+	Label  string
+	Key    string
+	Entry  int
+	Danger bool
 }
 
 // menuBlock is the menu text, top to bottom: the runnable actions first, then
@@ -522,7 +542,16 @@ func (m Model) menuBlock() []menuRow {
 		{Kind: menuRowBlank, Entry: -1},
 	}
 	for i, entry := range m.menuActions() {
-		rows = append(rows, menuRow{Kind: menuRowAction, Label: entry.Label, Key: entry.Key, Entry: i})
+		if entry.Danger {
+			rows = append(rows, menuRow{Kind: menuRowBlank, Entry: -1})
+		}
+		rows = append(rows, menuRow{
+			Kind:   menuRowAction,
+			Label:  entry.Label,
+			Key:    entry.Key,
+			Entry:  i,
+			Danger: entry.Danger,
+		})
 	}
 	if hints := m.menuHints(); len(hints) > 0 {
 		rows = append(rows,
@@ -609,8 +638,14 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 	case menuRowSection, menuRowHint:
 		style = styleMenuHint
 	}
+	if line.Danger {
+		style = styleMenuDanger
+	}
 	if line.Kind == menuRowAction && line.Entry == m.Menu.Selected {
 		style = styleMenuSelected
+		if line.Danger {
+			style = styleMenuDangerSelected
+		}
 	}
 
 	inner := strings.Repeat(" ", menuPadX) + line.Label

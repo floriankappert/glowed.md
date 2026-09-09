@@ -120,10 +120,14 @@ an editor and reshapes the surrounding UI.
 - `ctrl+n` creates a new Markdown file. The name is typed into the bottom row,
   the file is created next to the current document, and `.md` is appended when
   the name carries no extension.
-- `ctrl+p` opens the action menu: new file, edit filename, delete file, go home,
-  followed by the runnable actions of the current mode and a reference list of
-  the keys it cannot run. It deliberately does not sit on `ctrl+k`, which
+- `ctrl+p` opens the action menu: new file, edit filename, toggle sidebar,
+  toggle edit/preview and go home, followed by the runnable actions of the
+  current mode and a reference list of the keys it cannot run. *delete file*
+  sits apart at the bottom, behind a blank row and in red, because it is the
+  only destructive entry. The menu deliberately does not sit on `ctrl+k`, which
   deletes to the line end in edit mode.
+- *toggle edit/preview* refuses to leave a buffer with unsaved changes, unlike
+  `esc`, which discards it.
 - The menu covers the content pane — the whole screen on the welcome screen —
   with its own dark backdrop, centered, its rows left-aligned with each other.
   On a pane too short for all of it, the reference keys are dropped first and

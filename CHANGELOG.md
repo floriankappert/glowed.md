@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.7 - 2026-09-09
+
+### Added
+
+- Added *toggle sidebar* and *toggle edit/preview* to the action menu. The mode toggle refuses to leave a buffer with unsaved changes, unlike `esc`, which discards them.
+
+### Changed
+
+- *delete file* moved to the bottom of the action menu, set apart by a blank row and rendered in red, with a red highlight when selected. It is the only destructive entry, so it no longer sits between the harmless ones.
+- The sidebar hint dropped out of the menu's reference list, where it now repeated the runnable *toggle sidebar* entry.
+
+
 ## v0.2.2-floriankappert.6 - 2026-09-09
 
 ### Changed

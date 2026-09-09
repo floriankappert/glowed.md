@@ -170,6 +170,10 @@ var (
 	styleMenuSelected = lipgloss.NewStyle().Background(lipgloss.Color("12")).Foreground(lipgloss.Color("0")).Bold(true)
 	styleMenuHint     = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("8"))
 
+	// Destructive entries are set apart in red.
+	styleMenuDanger         = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("9"))
+	styleMenuDangerSelected = lipgloss.NewStyle().Background(lipgloss.Color("9")).Foreground(lipgloss.Color("0")).Bold(true)
+
 	stylePaneActive        = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 	stylePaneCaptionActive = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 )
@@ -840,6 +844,19 @@ func (m Model) dispatch(action string) (Model, tea.Cmd) {
 		} else {
 			m.Focus = FocusPreview
 		}
+	case "toggleMode":
+		if m.Mode != ModeEdit {
+			m.enterEditMode()
+			return m, nil
+		}
+		// cancelEdit throws the buffer away, so a toggle must not use it while
+		// there are unsaved changes.
+		if m.Editor.Dirty {
+			m.setStatus("unsaved changes in "+filepath.Base(m.Editor.File)+" — ctrl+s to save, esc to discard", "warn")
+			return m, nil
+		}
+		m.cancelEdit()
+		m.setStatus("preview", "info")
 	case "toggleSidebar":
 		m.SidebarVisible = !m.SidebarVisible
 		if !m.SidebarVisible && m.Focus == FocusSidebar {
@@ -2636,7 +2653,7 @@ func statusStyle(kind string) lipgloss.Style {
 
 func isDirectAction(action string) bool {
 	switch action {
-	case "quit", "search", "edit", "sourceSelect", "openLLM", "toggleSidebar", "save", "undo", "redo", "refresh", "nextFocus", "open":
+	case "quit", "search", "edit", "sourceSelect", "openLLM", "toggleSidebar", "toggleMode", "save", "undo", "redo", "refresh", "nextFocus", "open":
 		return true
 	default:
 		return false
