@@ -16,6 +16,13 @@ type Config struct {
 	Scan       ScanConfig        `json:"scan"`
 	Mouse      MouseConfig       `json:"mouse"`
 	LLM        LLMConfig         `json:"llm"`
+	Defaults   DefaultsConfig    `json:"defaults"`
+}
+
+// DefaultsConfig holds the startup defaults the action menu can change.
+type DefaultsConfig struct {
+	EditMode       bool `json:"editMode"`
+	SidebarVisible bool `json:"sidebarVisible"`
 }
 
 type PreviewConfig struct {
@@ -74,7 +81,8 @@ func Default() Config {
 		Scan: ScanConfig{
 			MaxFileBytes: 1024 * 1024,
 		},
-		Mouse: MouseConfig{Enabled: true},
+		Mouse:    MouseConfig{Enabled: true},
+		Defaults: DefaultsConfig{EditMode: true, SidebarVisible: true},
 		LLM: LLMConfig{
 			Enabled:            true,
 			Command:            "claude",
@@ -178,6 +186,18 @@ func mergeJSON(cfg *Config, b []byte) error {
 			return err
 		}
 		cfg.Mouse.Enabled = m.Enabled
+	}
+	if v, ok := raw["defaults"]; ok {
+		var d map[string]json.RawMessage
+		if err := json.Unmarshal(v, &d); err != nil {
+			return err
+		}
+		if rawEdit, ok := d["editMode"]; ok {
+			_ = json.Unmarshal(rawEdit, &cfg.Defaults.EditMode)
+		}
+		if rawSidebar, ok := d["sidebarVisible"]; ok {
+			_ = json.Unmarshal(rawSidebar, &cfg.Defaults.SidebarVisible)
+		}
 	}
 	if v, ok := raw["llm"]; ok {
 		var l map[string]json.RawMessage

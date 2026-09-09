@@ -10,6 +10,7 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/khw1031/glowed/internal/config"
 	"github.com/khw1031/glowed/internal/docs"
 )
 
@@ -36,7 +37,8 @@ type promptState struct {
 type menuState struct {
 	Active   bool
 	Selected int
-	Query    string // filter, typed straight into the menu
+	Query    string   // filter, typed straight into the menu
+	Path     []string // submenu the menu is currently in, empty at the top
 }
 
 // menuAction is what an action-menu entry does: the file actions, going back to
@@ -51,6 +53,9 @@ const (
 	menuOpenSelection
 	menuOpenDoc
 	menuDispatch
+	menuSubmenu
+	menuToggleEditDefault
+	menuToggleSidebarDefault
 )
 
 type menuEntry struct {
@@ -63,14 +68,43 @@ type menuEntry struct {
 	Path   string // absolute path, for menuOpenDoc entries
 }
 
-// menuEntries are the app actions, in display order. The welcome screen gets
-// its own short list: renaming or deleting a file that is not open makes no
-// sense there, and neither do the mode actions.
+// menuLevel names the submenu the menu is in.
+func (m Model) menuLevel() string {
+	if len(m.Menu.Path) == 0 {
+		return ""
+	}
+	return strings.Join(m.Menu.Path, " · ")
+}
+
+// onOff labels a toggle's current state.
+func onOff(v bool) string {
+	if v {
+		return "on"
+	}
+	return "off"
+}
+
+// menuEntries are the entries of the level the menu is in. The welcome screen
+// gets its own short list: renaming or deleting a file that is not open makes
+// no sense there, and neither do the mode actions.
 func (m Model) menuEntries() []menuEntry {
+	switch m.menuLevel() {
+	case "configuration":
+		return []menuEntry{
+			{Label: "defaults", Kind: menuSubmenu, Key: "›"},
+		}
+	case "configuration · defaults":
+		return []menuEntry{
+			{Label: "edit mode as default", Key: onOff(m.Cfg.Defaults.EditMode), Kind: menuToggleEditDefault},
+			{Label: "sidebar visible as default", Key: onOff(m.Cfg.Defaults.SidebarVisible), Kind: menuToggleSidebarDefault},
+		}
+	}
+
 	if m.Splash {
 		return []menuEntry{
 			{Label: "open", Key: "enter", Kind: menuOpenSelection},
 			{Label: "new file", Key: "ctrl+n", Kind: menuNewFile},
+			{Label: "configuration", Kind: menuSubmenu, Key: "›"},
 			{Label: "quit", Key: m.footerKey("quit"), Kind: menuDispatch, Action: "quit"},
 		}
 	}
@@ -79,6 +113,7 @@ func (m Model) menuEntries() []menuEntry {
 		{Label: "edit filename", Kind: menuRename},
 		{Label: "<> sidebar", Key: "ctrl+t", Kind: menuDispatch, Action: "toggleSidebar"},
 		{Label: "<> edit/preview", Kind: menuDispatch, Action: "toggleMode"},
+		{Label: "configuration", Kind: menuSubmenu, Key: "›"},
 		{Label: "go home", Kind: menuGoHome, Gap: true},
 	}
 }
@@ -94,6 +129,9 @@ func deleteEntry() menuEntry {
 // runnable here.
 func (m Model) menuActions() []menuEntry {
 	entries := m.menuEntries()
+	if m.menuLevel() != "" {
+		return filterMenuEntries(entries, m.Menu.Query)
+	}
 	if !m.Splash {
 		offered := map[string]bool{}
 		for _, entry := range entries {
@@ -164,7 +202,7 @@ func filterMenuEntries(entries []menuEntry, query string) []menuEntry {
 // menuHints are the mode's remaining hints: keys worth knowing that the menu
 // cannot run, such as the word-motion bindings.
 func (m Model) menuHints() []footerEntry {
-	if m.Splash {
+	if m.Splash || m.menuLevel() != "" {
 		return nil
 	}
 	query := strings.ToLower(strings.TrimSpace(m.Menu.Query))
@@ -470,9 +508,15 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		m.setStatus("actions closed", "info")
 		return nil
 	case "esc":
-		// A typo should not close the menu, so the filter goes first.
+		// A typo should not close the menu, so the filter goes first, then the
+		// way back out of a submenu.
 		if m.Menu.Query != "" {
 			m.Menu.Query = ""
+			m.Menu.Selected = 0
+			return nil
+		}
+		if len(m.Menu.Path) > 0 {
+			m.Menu.Path = m.Menu.Path[:len(m.Menu.Path)-1]
 			m.Menu.Selected = 0
 			return nil
 		}
@@ -512,6 +556,20 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 			m.openWelcomeSelection()
 		case menuOpenDoc:
 			m.openDocFromMenu(entry.Path)
+		case menuSubmenu:
+			m.Menu.Path = append(m.Menu.Path, entry.Label)
+			m.Menu.Query = ""
+			m.Menu.Selected = 0
+		case menuToggleEditDefault:
+			m.saveDefaults(config.DefaultsConfig{
+				EditMode:       !m.Cfg.Defaults.EditMode,
+				SidebarVisible: m.Cfg.Defaults.SidebarVisible,
+			})
+		case menuToggleSidebarDefault:
+			m.saveDefaults(config.DefaultsConfig{
+				EditMode:       m.Cfg.Defaults.EditMode,
+				SidebarVisible: !m.Cfg.Defaults.SidebarVisible,
+			})
 		case menuDispatch:
 			m.Menu.Active = false
 			next, cmd := m.dispatch(entry.Action)
@@ -531,6 +589,19 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		m.Menu.Selected = 0
 	}
 	return nil
+}
+
+// saveDefaults writes the startup defaults and reports where they went. The
+// running session keeps its current mode and sidebar: these are launch
+// defaults, not a live switch.
+func (m *Model) saveDefaults(next config.DefaultsConfig) {
+	path, err := config.SaveDefaults(next)
+	if err != nil {
+		m.setStatus("save failed: "+err.Error(), "error")
+		return
+	}
+	m.Cfg.Defaults = next
+	m.setStatus(fmt.Sprintf("saved defaults to %s (applies on next launch)", shortenHome(path)), "success")
 }
 
 // openDocFromMenu opens a document the filter matched.
@@ -599,8 +670,12 @@ type menuRow struct {
 // menuBlock is the menu text, top to bottom: the runnable actions first, then
 // the keys the menu cannot run but that are worth knowing.
 func (m Model) menuBlock() []menuRow {
+	title := "actions"
+	if level := m.menuLevel(); level != "" {
+		title += " · " + level
+	}
 	rows := []menuRow{
-		{Kind: menuRowTitle, Label: "actions", Entry: -1},
+		{Kind: menuRowTitle, Label: title, Entry: -1},
 		{Kind: menuRowBlank, Entry: -1},
 		{Kind: menuRowFilter, Label: m.Menu.Query, Entry: -1},
 		{Kind: menuRowBlank, Entry: -1},

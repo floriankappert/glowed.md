@@ -132,6 +132,12 @@ an editor and reshapes the surrounding UI.
   `enter` opens it in the editor. `↑` / `↓` move through the matches and `esc`
   clears the filter before it closes the menu. At most 7 document matches are
   offered at once, with a note saying how many were left out.
+- The menu has levels. *configuration → defaults* holds the startup defaults —
+  *edit mode as default* and *sidebar visible as default* — each showing `on` or
+  `off` and flipping on `enter`. The value is written to
+  `~/.config/glowed/config.json` and applies on the next launch; the running
+  session keeps its current mode and sidebar. `esc` walks back up one level
+  before it closes the menu, and the title shows where you are.
 - The menu offers new file, edit filename, `<> sidebar`,
   `<> edit/preview`, go home, then the runnable actions of the current mode and
   a reference list of the keys it cannot run. Labels and keys sit in their own
@@ -180,6 +186,9 @@ an editor and reshapes the surrounding UI.
   each with tests.
 - `docs.Document` carries the file's modification time, which the welcome
   screen orders by, and `docs.GuardNewPath` guards paths that do not exist yet.
+- `config.DefaultsConfig` holds the startup defaults, and `config.SaveDefaults`
+  writes them back by merging raw JSON, so settings this build does not know
+  about survive and the remaining defaults are not frozen into the file.
 - The module path in `go.mod` is unchanged (`github.com/khw1031/glowed`), which
   keeps upstream merges clean.
 

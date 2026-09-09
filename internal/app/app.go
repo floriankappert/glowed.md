@@ -201,7 +201,7 @@ func NewWithInitial(root string, initialPath string) Model {
 		Height:         30,
 		Mode:           ModePreview,
 		Focus:          FocusPreview,
-		SidebarVisible: true,
+		SidebarVisible: cfg.Defaults.SidebarVisible,
 		MouseEnabled:   true,
 		Splash:         initialPath == "",
 		ExpandedDirs:   map[string]bool{},
@@ -222,7 +222,7 @@ func NewWithInitial(root string, initialPath string) Model {
 	// Edit is the default mode; fall back to preview when there is nothing to
 	// edit, for instance in an empty project. The startup notice about the scan
 	// and polling refresh is more useful here than the edit banner.
-	if m.currentDoc() != nil {
+	if m.currentDoc() != nil && m.Cfg.Defaults.EditMode {
 		status, kind := m.Status, m.StatusKind
 		m.enterEditMode()
 		if status != "" {

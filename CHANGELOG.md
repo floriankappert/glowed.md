@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.11 - 2026-09-09
+
+### Added
+
+- Added a multi-level *configuration* entry to the action menu. *configuration → defaults* offers *edit mode as default* and *sidebar visible as default*, each showing `on` or `off` and flipping on `enter`. `esc` walks back up one level before closing the menu, and the menu title shows the current level.
+- Added `config.SaveDefaults`, which writes those defaults to `~/.config/glowed/config.json`. It merges the file as raw JSON, so settings this build does not know about survive and the other defaults are not frozen into the file, and it writes through a temp file so a failed write cannot truncate an existing config.
+- Edit mode and sidebar visibility on launch are now read from `defaults.editMode` and `defaults.sidebarVisible` instead of being hardcoded. Both default to on, which is the behaviour they replace.
+
+### Changed
+
+- A submenu shows only its own entries: no mode actions, no delete, no document matches, and the filter applies to that level.
+
+
 ## v0.2.2-floriankappert.10 - 2026-09-09
 
 ### Added

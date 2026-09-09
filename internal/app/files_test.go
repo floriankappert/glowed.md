@@ -1049,9 +1049,11 @@ func TestActionMenuHasToggleEntries(t *testing.T) {
 	}
 }
 
+// selectMenuLabel highlights an entry without disturbing the menu's level or
+// filter.
 func selectMenuLabel(t *testing.T, m Model, label string) Model {
 	t.Helper()
-	m.Menu = menuState{Active: true}
+	m.Menu.Active = true
 	for i, entry := range m.menuActions() {
 		if entry.Label == label {
 			m.Menu.Selected = i
