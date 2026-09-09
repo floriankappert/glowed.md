@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseMetaTags(t *testing.T) {
@@ -164,5 +165,27 @@ func TestScanWithReportPopulatesTitleAndBody(t *testing.T) {
 	}
 	if !strings.Contains(got[0].Body, "Body needle") || strings.Contains(got[0].Body, "Frontmatter Title") {
 		t.Fatalf("Body = %q, want body without frontmatter", got[0].Body)
+	}
+}
+
+func TestScanRecordsModificationTime(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.md")
+	if err := os.WriteFile(path, []byte("# Note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	if err := os.Chtimes(path, want, want); err != nil {
+		t.Fatal(err)
+	}
+	list, err := Scan(root, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("scanned %d files, want 1", len(list))
+	}
+	if !list[0].ModTime.Equal(want) {
+		t.Fatalf("ModTime = %v, want %v", list[0].ModTime, want)
 	}
 }

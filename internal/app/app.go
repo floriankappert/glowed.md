@@ -134,6 +134,8 @@ type Model struct {
 	SidebarVisible bool
 	PrefixPending  bool
 	MouseEnabled   bool
+	Splash         bool
+	SplashSelected int
 
 	Editor               editorState
 	Highlight            map[int][]render.Span
@@ -142,6 +144,9 @@ type Model struct {
 	LastSelectionFile    string
 	LastSelectionPayload string
 	Chat                 chatState
+
+	Prompt promptState
+	Menu   menuState
 
 	Status        string
 	StatusKind    string
@@ -162,7 +167,15 @@ var (
 	styleRed     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	styleCyan    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
 	styleReverse = lipgloss.NewStyle().Reverse(true)
-	styleFooter  = lipgloss.NewStyle().Background(lipgloss.Color("236"))
+	styleCursor  = lipgloss.NewStyle().Reverse(true)
+	styleHeading = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
+
+	// The action menu covers the content pane, so it carries its own backdrop.
+	styleMenuBackdrop = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor))
+	styleMenuTitle    = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("11")).Bold(true)
+	styleMenuEntry    = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("15"))
+	styleMenuSelected = lipgloss.NewStyle().Background(lipgloss.Color("12")).Foreground(lipgloss.Color("0")).Bold(true)
+	styleFooter       = lipgloss.NewStyle().Background(lipgloss.Color("236"))
 
 	stylePaneActive        = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 	stylePaneCaptionActive = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
@@ -185,8 +198,9 @@ func NewWithInitial(root string, initialPath string) Model {
 		Height:         30,
 		Mode:           ModePreview,
 		Focus:          FocusPreview,
-		SidebarVisible: false,
+		SidebarVisible: true,
 		MouseEnabled:   true,
+		Splash:         initialPath == "",
 		ExpandedDirs:   map[string]bool{},
 		PreviewScrolls: map[string]int{},
 		StatusKind:     "info",
@@ -226,6 +240,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
+	// The welcome screen owns the keyboard until a document is opened, so keys
+	// meant for its file list never reach the buffer.
+	if m.Splash {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			name := normalizeKey(key.String())
+			if name == "ctrl+c" {
+				m.shutdown()
+				return m, tea.Quit
+			}
+			if m.Prompt.Active {
+				cmd := m.handlePromptKey(key)
+				return m, cmd
+			}
+			if name == "ctrl+n" {
+				m.openNewFilePrompt()
+				return m, nil
+			}
+			m.handleWelcomeKey(name)
+			return m, nil
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
@@ -267,6 +302,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.setStatus("prefix "+m.Cfg.Prefix, "info")
 		return m, nil
 	}
+	// The toolbar prompt and the action menu own the keyboard while they are
+	// open, in every mode.
+	if m.Prompt.Active {
+		cmd := m.handlePromptKey(msg)
+		return m, cmd
+	}
+	if m.Menu.Active {
+		m.handleMenuKey(key)
+		return m, nil
+	}
+	if key == "ctrl+n" {
+		m.openNewFilePrompt()
+		return m, nil
+	}
+	if key == "ctrl+p" {
+		m.toggleActionMenu()
+		return m, nil
+	}
+
 	if m.PrefixPending {
 		m.PrefixPending = false
 		if action := m.actionForKey(key, m.Cfg.PrefixKeys); action != "" {
@@ -832,7 +886,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			}
 		}
 	}
-	if y == 1 && mouse.Action == tea.MouseActionPress {
+	if m.searchVisible() && y == m.searchRow() && mouse.Action == tea.MouseActionPress {
 		m.Focus = FocusSearch
 		return nil
 	}
@@ -1863,12 +1917,17 @@ func (m Model) View() string {
 	if m.Width <= 0 || m.Height <= 0 {
 		return ""
 	}
+	if m.Splash {
+		return m.renderSplash()
+	}
 	var b strings.Builder
 	b.WriteString("\x1b[5 q") // steady bar cursor for Ghostty/xterm
 	b.WriteString(m.renderHeader())
 	b.WriteByte('\n')
-	b.WriteString(m.renderSearch())
-	b.WriteByte('\n')
+	if m.searchVisible() {
+		b.WriteString(m.renderSearch())
+		b.WriteByte('\n')
+	}
 	b.WriteString(m.renderPaneBorder(true))
 	b.WriteByte('\n')
 	for row := 0; row < m.contentHeight(); row++ {
@@ -2022,6 +2081,9 @@ func (m Model) paneContent(pane paneSpec, row int) string {
 	case paneChat:
 		return strings.Repeat(" ", panePadLeft) + m.renderChatLine(row)
 	default:
+		if line, ok := m.renderMenuRow(pane.Width, row); ok {
+			return line
+		}
 		if m.rawBufferMode() {
 			return strings.Repeat(" ", panePadLeft) + m.renderEditorLine(row)
 		}
@@ -2037,11 +2099,18 @@ func paneStyles(focused bool) (border lipgloss.Style, caption lipgloss.Style) {
 	return styleDim, styleDim
 }
 
-// renderToolbar shows the path of the current document above the footer.
+// renderToolbar shows the path of the current document above the footer, or the
+// prompt while one is open.
 func (m Model) renderToolbar() string {
+	if m.Prompt.Active {
+		return m.renderPrompt()
+	}
 	return fitANSI(" "+styleDim.Render(m.pathLine()), m.Width)
 }
 
+// renderHeader draws the rows above the panes: the lightbulb mark, the name and
+// mode beside it, and the current file underneath. On a short terminal it
+// collapses into the single row it used to be.
 func (m Model) renderHeader() string {
 	mode := styleGreen.Render("PREVIEW")
 	if m.Mode == ModeEdit {
@@ -2057,8 +2126,22 @@ func (m Model) renderHeader() string {
 	if d := m.currentDoc(); d != nil {
 		doc = d.Rel
 	}
-	line := fmt.Sprintf("%s %s%s %s %s", styleTitle.Render("glowed"), mode, dirty, styleDim.Render(focusName(m.Focus)), styleDim.Render(doc))
-	return fitANSI(line, m.Width)
+	title := fmt.Sprintf("%s %s%s %s", styleTitle.Render("glowed"), mode, dirty, styleDim.Render(focusName(m.Focus)))
+
+	if !m.logoHeader() {
+		return fitANSI(title+" "+styleDim.Render(doc), m.Width)
+	}
+
+	beside := []string{title, styleDim.Render(doc)}
+	rows := make([]string, 0, headerRows)
+	for i, line := range splashLogo {
+		row := " " + styleYellow.Render(line) + "  "
+		if i < len(beside) {
+			row += beside[i]
+		}
+		rows = append(rows, fitANSI(row, m.Width))
+	}
+	return strings.Join(rows, "\n")
 }
 
 func (m Model) renderSearch() string {
@@ -2156,7 +2239,10 @@ func (m Model) renderEditorLine(row int) string {
 	}
 	line := m.Editor.Lines[idx]
 	selStart, selEnd, selected := m.editorSelectionForLine(idx)
-	cursor := m.Mode == ModeEdit && m.Focus == FocusEditor && idx == m.Editor.CY && !m.hasEditorSelection()
+	// The prompt and the action menu take the caret with them, so the buffer
+	// stops drawing its own while either is open.
+	cursor := m.Mode == ModeEdit && m.Focus == FocusEditor && idx == m.Editor.CY &&
+		!m.hasEditorSelection() && !m.Prompt.Active && !m.Menu.Active
 	out := renderEditorVisibleLine(line, m.Editor.ScrollX, m.editorTextWidth(), m.Editor.CX, cursor, selStart, selEnd, selected, m.Highlight[idx])
 	return fitPlain(out, w)
 }
@@ -2275,7 +2361,7 @@ func (m Model) editFooterEntries() []footerEntry {
 		{Key: "opt+←→", Label: "word"},
 		{Key: "cmd+⌫", Label: "del line"},
 		{Key: "opt+a", Label: "select all", Action: "selectAll"},
-		{Key: "cmd+c", Label: "copy"},
+		{Key: "opt+c", Label: "copy"},
 		{Key: "ctrl+b", Label: "sidebar"},
 		{Key: "esc", Label: "cancel", Action: "cancelEdit"},
 	}
@@ -2453,11 +2539,49 @@ func (m Model) chatStartX() int {
 	return m.rightTextStartX() + m.rightInnerWidth()
 }
 
-// Row layout: header, search, pane top border, content, pane bottom border,
-// toolbar, footer.
-func (m Model) contentTop() int { return 3 }
+// Row layout: header, optional search, pane top border, content, pane bottom
+// border, toolbar, footer.
+func (m Model) contentTop() int { return m.chromeTopRows() + 1 }
 func (m Model) contentHeight() int {
-	return max(1, m.Height-6)
+	return max(1, m.Height-m.chromeTopRows()-4)
+}
+
+// headerRows is the height of the logo header: the lightbulb, with the name and
+// mode beside it and the current file underneath.
+const headerRows = 3
+
+// minLogoHeaderHeight is the terminal height the logo header needs. Below it the
+// header collapses to a single row, so a short split still renders a frame that
+// fits on screen.
+const minLogoHeaderHeight = 12
+
+// logoHeader reports whether the tall header is in use.
+func (m Model) logoHeader() bool { return m.Height >= minLogoHeaderHeight }
+
+// chromeTopRows counts the rows above the pane top border.
+func (m Model) chromeTopRows() int {
+	rows := 1
+	if m.logoHeader() {
+		rows = headerRows
+	}
+	if m.searchVisible() {
+		rows++
+	}
+	return rows
+}
+
+// searchRow is the row the search input sits on, directly below the header.
+func (m Model) searchRow() int {
+	if m.logoHeader() {
+		return headerRows
+	}
+	return 1
+}
+
+// searchVisible reports whether the search row is part of the frame. It only
+// shows while the search is in use, so an idle frame spends the row on content.
+func (m Model) searchVisible() bool {
+	return m.Focus == FocusSearch || m.Query != ""
 }
 func (m Model) paneBottomRow() int     { return m.contentTop() + m.contentHeight() }
 func (m Model) toolbarRow() int        { return m.paneBottomRow() + 1 }
@@ -2623,9 +2747,23 @@ func renderEditorVisibleLine(line string, scrollX, width, cursorIndex int, curso
 		return sliceStyled(line, scrollX, width, spans, 0, 0, false)
 	}
 	before := sliceStyled(line, scrollX, max(0, cursorCol-scrollX), spans, 0, 0, false)
-	afterWidth := max(0, width-xansi.StringWidth(before)-1)
-	after := sliceStyled(line, cursorCol, afterWidth, spans, 0, 0, false)
-	return before + styleCyan.Render("│") + after
+	// The caret covers the cell it sits on. Inserting a glyph before that cell
+	// instead would push the rest of the line one column to the right.
+	cell, cellWidth := cursorCell(line, cursorIndex)
+	afterWidth := max(0, width-xansi.StringWidth(before)-cellWidth)
+	after := sliceStyled(line, cursorCol+cellWidth, afterWidth, spans, 0, 0, false)
+	return before + styleCursor.Render(cell) + after
+}
+
+// cursorCell returns the character the caret covers and its display width. Past
+// the last character the caret gets a blank cell of its own.
+func cursorCell(line string, cursorIndex int) (string, int) {
+	runes := []rune(line)
+	idx := clamp(cursorIndex, 0, len(runes))
+	if idx >= len(runes) {
+		return " ", 1
+	}
+	return string(runes[idx]), max(1, runewidth.RuneWidth(runes[idx]))
 }
 
 func displayColumnForIndex(line string, idx int) int {

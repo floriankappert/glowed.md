@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,6 +23,7 @@ type Document struct {
 	Title          string
 	Body           string
 	Snippet        string
+	ModTime        time.Time
 }
 
 type Meta struct {
@@ -105,6 +107,7 @@ func ScanWithReport(root string, maxFileBytes int64) ([]Document, ScanReport, er
 			Tags:           meta.Tags,
 			Title:          title,
 			Body:           body,
+			ModTime:        info.ModTime(),
 		})
 		return nil
 	})

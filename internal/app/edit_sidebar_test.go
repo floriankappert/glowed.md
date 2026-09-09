@@ -76,6 +76,7 @@ func TestEscFromDefaultEditModeGoesToPreview(t *testing.T) {
 
 func TestCtrlBTogglesSidebarInEditMode(t *testing.T) {
 	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlB}) // the sidebar starts visible
 	if m.SidebarVisible {
 		t.Fatal("sidebar visible before the toggle")
 	}
@@ -264,7 +265,6 @@ func TestEnterOnDirectoryTogglesInsteadOfOpening(t *testing.T) {
 
 func TestSidebarClickKeepsEditMode(t *testing.T) {
 	m, _ := projectModel(t)
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlB})
 	row := 1
 	if len(m.SidebarRows) <= row {
 		t.Skip("not enough sidebar rows")
@@ -283,7 +283,6 @@ func TestSidebarClickKeepsEditMode(t *testing.T) {
 
 func TestSidebarClickRefusesToDropUnsavedChanges(t *testing.T) {
 	m, _ := projectModel(t)
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlB})
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
 	opened := currentFile(m)
 	row := 1
@@ -335,15 +334,15 @@ func previewModel(t *testing.T) Model {
 func TestCtrlBTogglesSidebarInPreviewMode(t *testing.T) {
 	m := previewModel(t)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlB})
+	if m.SidebarVisible {
+		t.Fatal("ctrl+b did not hide the sidebar in preview mode")
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlB})
 	if !m.SidebarVisible {
-		t.Fatal("ctrl+b did not show the sidebar in preview mode")
+		t.Fatal("ctrl+b did not show the sidebar again")
 	}
 	if m.Mode != ModePreview {
 		t.Fatalf("Mode = %v, want ModePreview", modeName(m.Mode))
-	}
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlB})
-	if m.SidebarVisible {
-		t.Fatal("ctrl+b did not hide the sidebar again")
 	}
 }
 
@@ -381,7 +380,7 @@ func TestCtrlBFromSearchFocusTogglesSidebar(t *testing.T) {
 	m := previewModel(t)
 	m.Focus = FocusSearch
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlB})
-	if !m.SidebarVisible {
+	if m.SidebarVisible {
 		t.Fatal("ctrl+b was swallowed by the search input")
 	}
 	if m.Query != "" {

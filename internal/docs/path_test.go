@@ -72,3 +72,32 @@ func TestGuardExistingPathRejectsSymlinkEscape(t *testing.T) {
 		t.Fatal("GuardExistingPath() error = nil, want symlink escape error")
 	}
 }
+
+func TestGuardNewPathAllowsNotYetExistingFileInRoot(t *testing.T) {
+	root := t.TempDir()
+	got, err := GuardNewPath(root, filepath.Join(root, "note.md"))
+	if err != nil {
+		t.Fatalf("GuardNewPath: %v", err)
+	}
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(real, "note.md"); got != want {
+		t.Fatalf("GuardNewPath = %q, want %q", got, want)
+	}
+}
+
+func TestGuardNewPathRejectsTraversalOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	if _, err := GuardNewPath(root, filepath.Join(root, "..", "escape.md")); err == nil {
+		t.Fatal("GuardNewPath accepted a path outside the root")
+	}
+}
+
+func TestGuardNewPathRejectsMissingParentDirectory(t *testing.T) {
+	root := t.TempDir()
+	if _, err := GuardNewPath(root, filepath.Join(root, "nope", "note.md")); err == nil {
+		t.Fatal("GuardNewPath accepted a missing parent directory")
+	}
+}

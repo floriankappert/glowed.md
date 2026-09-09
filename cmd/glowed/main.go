@@ -19,6 +19,7 @@ import (
 var version = "dev"
 
 func main() {
+	app.Version = version
 	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version" || os.Args[1] == "version") {
 		fmt.Println("glowed " + version)
 		return

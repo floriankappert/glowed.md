@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-func TestModelStartsWithSidebarHidden(t *testing.T) {
+func TestModelStartsWithSidebarVisible(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Hello"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	m := New(root)
-	if m.SidebarVisible {
-		t.Fatal("SidebarVisible = true, want false on startup")
+	if !m.SidebarVisible {
+		t.Fatal("SidebarVisible = false, want true on startup")
 	}
 	// Edit is the default mode, so a project with documents starts in the editor.
 	if m.Focus != FocusEditor {

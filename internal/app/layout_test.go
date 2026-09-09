@@ -22,6 +22,7 @@ func viewRows(t *testing.T, m Model) []string {
 func layoutModel(t *testing.T, w, h int) Model {
 	t.Helper()
 	m, _ := projectModel(t)
+	m.Splash = false
 	m.Width, m.Height = w, h
 	m.SidebarVisible = true
 	m.ensureSidebarState()

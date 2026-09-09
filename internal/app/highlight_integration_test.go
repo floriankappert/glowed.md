@@ -22,6 +22,7 @@ func highlightModel(t *testing.T, body string) Model {
 		t.Fatal(err)
 	}
 	m := NewWithInitial(root, path)
+	m.Splash = false
 	m.Width, m.Height = 100, 24
 	next, _ := m.dispatch("edit")
 	m = next

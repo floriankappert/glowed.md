@@ -4,6 +4,9 @@
 
 It treats the directory where it is launched as a project root, scans Markdown files, lets you search and preview them, edit raw Markdown, copy app-managed selections with path metadata, and open an external LLM CLI session with the current document context.
 
+> This repository is a fork of [khw1031/glowed](https://github.com/khw1031/glowed) that turns the MVP's raw edit mode into a usable editor. See
+> [Differences from the upstream project](#differences-from-the-upstream-project) for the complete list.
+
 Language versions: [한국어](README.ko.md) · [日本語](README.jp.md) · [中文](README.zh.md)
 
 ## Screenshots
@@ -27,6 +30,119 @@ glowed is currently implemented as a Go terminal application.
 
 The current implementation was produced with Codex GPT-5.5, a local `TODO.md` planning file, and the pi agent coding harness.
 
+## Differences from the upstream project
+
+This fork branched off upstream `v0.2.2` and is versioned as
+`v0.2.2-floriankappert.N`. Upstream's editor is an MVP raw-buffer mode; the work
+here makes it behave like an editor and reshapes the surrounding UI. Everything
+below is additional to upstream — no upstream feature was removed.
+
+### Editing
+
+- Word- and line-wise caret motion: `opt+←` / `opt+→`, and `cmd+←` / `cmd+→`
+  (also `ctrl+a` / `ctrl+e`, `home` / `end`).
+- Word- and line-wise deletion: `opt+⌫`, `opt+⌦`, `cmd+⌫` (`ctrl+u`), `ctrl+k`.
+- Keyboard text selection with `shift` and `opt+shift` motion, plus `opt+a` to
+  select the whole buffer. Typing or deleting replaces an active selection.
+- Clipboard copy of the editor selection as plain text (`opt+c`).
+- Paste at the caret (`cmd+v` / `opt+v`), replacing an active selection as a
+  single undoable edit; multi-line pastes are supported.
+- Syntax highlighting for fenced code blocks in edit and source mode, using the
+  colors of the configured `preview.style`.
+- `opt+←` / `opt+→` were remapped from line start/end to word motion; line
+  start/end moved to `cmd+←` / `cmd+→`, `home` / `end`, or `ctrl+a` / `ctrl+e`.
+- `esc` clears an active selection first and only leaves edit mode when nothing
+  is selected.
+- `ctrl+s` keeps the buffer open instead of switching back to the preview.
+
+### Modes and navigation
+
+- Edit is the default mode: glowed starts in the editor, and documents opened
+  from the sidebar open for editing. Projects without documents still start in
+  the preview.
+- `ctrl+b` toggles the sidebar in every mode, including edit mode where the
+  browse bindings are unavailable.
+- `shift+tab` moves the focus between the content pane and the sidebar in every
+  mode, opening the sidebar when it is hidden.
+- Sidebar navigation with `↑` / `↓` and `enter` opens the selected document
+  directly in edit mode. The switch is refused while the current buffer has
+  unsaved changes.
+
+### Layout
+
+- A welcome screen is shown on launch — a lightbulb mark next to the version and
+  the project root, plus the 7 most recently modified documents under a *Recent
+  files* heading. `↑` / `↓` select and `enter` opens one in the editor. It stays
+  up until a file is picked, and is skipped when a file is passed on the command
+  line.
+- The header above the panes carries the same lightbulb mark, with the name and
+  mode beside it and the current file underneath. Below a terminal height of 12
+  rows it collapses into the single row it used to be, so short splits still
+  render a frame that fits.
+- The sidebar is visible on launch instead of hidden.
+- The search row below the header only appears while the search has focus or a
+  query is set, so an idle frame spends that row on content.
+- Panes are drawn as fully bordered boxes that share their vertical edges, and
+  the pane captions sit further inside the top border.
+- The focused pane is highlighted: its border and caption use the accent color.
+- The document path moved out of the pane body and the header into its own
+  toolbar row directly above the footer, which gives every pane one more
+  content row.
+- The footer bar shows edit-mode bindings while editing instead of the browse
+  bindings, and drops optional hints when the terminal is too narrow.
+
+### File management
+
+- `ctrl+n` creates a new Markdown file. The name is typed into the toolbar row,
+  the file is created next to the current document, and `.md` is appended when
+  the name carries no extension.
+- `ctrl+p` opens a file action menu: new file, edit filename, delete file. It
+  deliberately does not sit on `ctrl+k`, which deletes to the line end in edit
+  mode. The menu covers the content pane with its own backdrop and centers its
+  entries in it, left-aligned with each other.
+- While the prompt or the action menu is open, the caret sits in that line and
+  the buffer stops drawing its own, so the focus is unambiguous.
+- Renaming refuses an existing target name and refuses to run while the buffer
+  has unsaved changes.
+- Deleting asks for confirmation and keeps a `<name>.md.bak` copy, so the delete
+  stays recoverable.
+- Create and rename are checked against the project root before anything is
+  written, the same way opening and saving already were.
+
+### Fixes carried in this fork
+
+- Pasted text is no longer dropped in edit mode; multi-line pastes previously
+  failed the control-character filter entirely.
+- alt-modified keys no longer type their letter into the search field or the
+  chat input.
+- Space can be typed in edit mode; it arrives as its own key type and was
+  previously dropped.
+- Escape sequences and other control runes no longer leak into the buffer.
+- The documented copy shortcut was corrected to `opt+c`: `cmd+c` cannot reach
+  the program, because macOS routes it to Ghostty's *Edit > Copy* menu item.
+- The edit-mode caret no longer pushes the rest of the line one column to the
+  right; it covers the cell it sits on instead of being inserted before it.
+
+### Under the hood
+
+- `github.com/alecthomas/chroma/v2` and `github.com/muesli/termenv` are now
+  direct dependencies, used by the code-block highlighter in
+  `internal/render/highlight.go`.
+- New packages/files: `internal/render/highlight.go`,
+  `internal/editor/motion.go`, `internal/app/editing.go`,
+  `internal/app/splash.go`, `internal/app/files.go`, each with tests.
+- `docs.Document` carries the file's modification time, which the welcome screen
+  orders by.
+- The module path in `go.mod` is unchanged (`github.com/khw1031/glowed`), which
+  keeps upstream merges clean but means `go install` cannot fetch this fork.
+
+### Distribution
+
+- Released through the `floriankappert/tap` Homebrew tap, with the upstream tap
+  left untouched.
+- Version numbers carry the `-floriankappert.N` suffix so a fork build is never
+  mistaken for an upstream release.
+
 ## Features
 
 - Scan `.md` files under the project root
@@ -35,9 +151,12 @@ The current implementation was produced with Codex GPT-5.5, a local `TODO.md` pl
 - Search by title, Markdown body, filename/path, frontmatter, and `tag:` / `tags:` metadata
 - Sidebar directory tree with expandable/collapsible folders
 - Glamour-based Markdown preview
-- Raw Markdown edit mode
+- Raw Markdown edit mode with word- and line-wise motion, deletion, and keyboard selection
+- Syntax highlighting for fenced code blocks in edit and source mode
 - Atomic save with backup
 - Undo/redo in edit mode
+- Welcome screen with the most recently modified documents, selectable on launch
+- Create, rename, and delete Markdown files from inside the TUI
 - Mouse click, wheel, and drag-based app-managed selection
 - Source selection mode for copying exact original Markdown with metadata
 - Footer action bar with clickable actions
@@ -49,7 +168,7 @@ The current implementation was produced with Codex GPT-5.5, a local `TODO.md` pl
 ### From source
 
 ```bash
-git clone https://github.com/khw1031/glowed.git
+git clone https://github.com/floriankappert/glowed.git
 cd glowed
 go build -o ./bin/glowed ./cmd/glowed
 ./bin/glowed
@@ -64,30 +183,34 @@ install -m 0755 glowed ~/.local/bin/glowed
 
 ### With `go install`
 
+`go install` resolves the module path declared in `go.mod`, which this fork
+keeps at the upstream value. The command below therefore installs the
+**upstream** build, not this fork:
+
 ```bash
 go install github.com/khw1031/glowed/cmd/glowed@latest
 ```
+
+To get this fork, use the Homebrew tap below or build from the clone above.
 
 ### Homebrew tap
 
 The distribution model is a custom Homebrew tap first, not Homebrew core.
 
+This fork is distributed through its own tap:
+
 ```bash
-brew tap khw1031/tap
-brew install glowed
+brew install floriankappert/tap/glowed
 ```
 
-or:
+The upstream build lives in the maintainer's tap:
 
 ```bash
 brew install khw1031/tap/glowed
 ```
 
-Forks and custom variants can publish their own taps, for example:
-
-```bash
-brew install SOMEONE/tap/glowed
-```
+Both formulae are named `glowed`, so install with the full tap path to avoid
+ambiguity.
 
 ## Usage
 
@@ -151,6 +274,8 @@ Use `tag:foo` to search tags specifically. The query syntax is `tag:foo`; `tags:
 - `ctrl+y`: redo in edit mode
 - `esc`: cancel search/edit/source mode depending on context
 - `r`: rescan project root manually; automatic polling refresh also reflects Markdown changes while glowed is running
+- `ctrl+n`: create a new Markdown file, entering the name in the toolbar row
+- `ctrl+p`: open the file action menu (new file, edit filename, delete file)
 - `ctrl+g b`: toggle sidebar
 - `ctrl+g l`: open external LLM session
 - `ctrl+g r`: rescan
@@ -178,7 +303,7 @@ reach the program, so both spellings below refer to the same binding.
 | `opt+shift+←` / `opt+shift+→` | extend the selection word-wise |
 | `shift+home` / `shift+end` | extend the selection to line start/end |
 | `opt+a` | select the whole buffer |
-| `cmd+c` / `opt+c` | copy the selection as plain text |
+| `opt+c` | copy the selection as plain text |
 | `cmd+v` / `opt+v` | paste at the caret, replacing the selection |
 | `esc` | clear the selection, or leave edit mode when nothing is selected |
 
@@ -202,23 +327,15 @@ open instead of returning to the preview.
 `cmd+v` works out of the box: Ghostty pastes into the terminal and glowed
 receives it as a bracketed paste, newlines included.
 
-`cmd+a` cannot be forwarded at all: macOS routes it to Ghostty's *Edit > Select
-All* menu item before the terminal sees it, and a menu shortcut wins over any
-keybind. Select-all is therefore `opt+a`. It deliberately does not sit on
-`ctrl+a`, because Ghostty sends exactly that for `cmd+←` — the two are
-indistinguishable to the program.
+`cmd+c` and `cmd+a` cannot be forwarded at all. macOS routes them to Ghostty's
+*Edit > Copy* and *Edit > Select All* menu items before the terminal sees them,
+and a menu shortcut wins over any `keybind` entry — remapping `super+c` or
+`super+a` in the Ghostty config has no effect. Copy and select-all are therefore
+`opt+c` and `opt+a`, which need no configuration when `macos-option-as-alt` is
+set.
 
-`cmd+c` is claimed by Ghostty too, but can be remapped, because `cmd` cannot be
-expressed in the legacy key encoding:
-
-```
-keybind = super+c=esc:c
-```
-
-Ghostty applies remaps globally rather than per program, so weigh what they
-replace. This one takes over Ghostty's copy shortcut — with the default
-`copy-on-select = true`, a mouse selection still copies on its own. Without it,
-use `opt+c`, which needs no configuration when `macos-option-as-alt = true`.
+Select-all deliberately does not sit on `ctrl+a`, because Ghostty sends exactly
+that for `cmd+←` — the two are indistinguishable to the program.
 
 
 
@@ -340,7 +457,7 @@ The editor performs backup + atomic save, but this is still early software. Use 
 Homebrew tap namespaces are the recommended way to distinguish modified builds.
 
 - The same formula name, `glowed`, can exist in different taps.
-- For example, `khw1031/tap/glowed` and `someone/tap/glowed` can both be distributed.
+- For example, `khw1031/tap/glowed` and `floriankappert/tap/glowed` can both be distributed.
 - Users should install with the full tap path, such as `brew install someone/tap/glowed`, to avoid ambiguity.
 - You are encouraged to maintain and use your own tap/build freely for your workflow.
 - A modified build may install the binary as `glowed` for drop-in use, or as `glowed-<name>` if it should coexist with other builds.
