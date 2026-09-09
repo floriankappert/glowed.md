@@ -155,6 +155,11 @@ an editor and reshapes the surrounding UI.
   filter row — it is a short, fixed list — so typing there does nothing rather
   than filtering invisibly. *configuration* sits at the very bottom of the top
   level, below *delete file*.
+- The mode entry names the mode it switches to: *Preview* with `esc` while
+  editing, *Edit* with `e` while previewing. It refuses to leave a buffer with
+  unsaved changes, unlike `esc`, which discards them.
+- *configuration → hotkeys* lists every binding, grouped by where it applies.
+  It is a reference list, so `↑` / `↓` scroll it instead of moving a selection.
 - The menu offers new file, edit filename, `<> sidebar`,
   `<> edit/preview`, go home, then the runnable actions of the current mode and
   a reference list of the keys it cannot run. Labels and keys sit in their own
@@ -163,8 +168,7 @@ an editor and reshapes the surrounding UI.
   the title stays pinned at the top and *delete file* at the bottom, so it can
   never scroll out of sight. The menu deliberately does not sit on `ctrl+k`,
   which deletes to the line end in edit mode.
-- `<> edit/preview` refuses to leave a buffer with unsaved changes, unlike
-  `esc`, which discards it.
+
 - The menu covers the content pane — the whole screen on the welcome screen —
   with its own dark backdrop, centered, its rows left-aligned with each other.
   On a pane too short for all of it, the reference keys are dropped first and
@@ -202,6 +206,25 @@ an editor and reshapes the surrounding UI.
 - Upstream's *source* action is labelled *copy exact markdown* in the menu: it
   enters a mode where a selection yields the original Markdown with its path
   metadata rather than the rendered preview text.
+
+### Robustness
+
+- The rendered frame is forced to exactly the terminal's width and height as a
+  last step, so a size the row arithmetic cannot serve gets a cut frame rather
+  than one that overflows the alt-screen.
+- Pasted text is stripped of control characters. They would be written to the
+  document and rendered back into the frame, where an escape sequence can
+  corrupt the display; newlines survive and a tab becomes two spaces.
+- A control rune that came from a file on disk is drawn as `·` instead of being
+  emitted raw. The buffer keeps the file faithful, so saving does not rewrite
+  it.
+- The narrow-terminal case drops the toolbar's `ctrl+p actions` hint rather than
+  overrunning the row.
+- Tests cover the frame geometry across thirteen states and ten sizes down to
+  1×1, several thousand random key and mouse events, malformed config files,
+  filename-prompt input that tries to escape the project root, and a document
+  that vanishes behind glowed's back. `go vet`, `staticcheck` and
+  `go test -race` are clean.
 
 ### Under the hood
 

@@ -91,8 +91,14 @@ func TestHighlightNotRecomputedForUnchangedBuffer(t *testing.T) {
 	if m.HighlightKey != key {
 		t.Fatal("fingerprint changed without an edit")
 	}
-	if &first == nil {
-		t.Fatal("unreachable")
+	// The map must be the very same one: recomputing would replace it.
+	if len(m.Highlight) != len(first) {
+		t.Fatalf("highlight was recomputed: %d spans, had %d", len(m.Highlight), len(first))
+	}
+	for line := range first {
+		if len(m.Highlight[line]) != len(first[line]) {
+			t.Fatalf("line %d was recomputed", line)
+		}
 	}
 }
 

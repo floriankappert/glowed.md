@@ -43,6 +43,7 @@ type menuState struct {
 	Selected int
 	Query    string   // filter, typed straight into the menu
 	Path     []string // submenu the menu is currently in, empty at the top
+	Scroll   int      // first visible row of a level that has nothing to select
 }
 
 // menuAction is what an action-menu entry does: the file actions, going back to
@@ -101,7 +102,11 @@ func (m Model) menuEntries() []menuEntry {
 	case "configuration":
 		return []menuEntry{
 			{Label: "defaults", Kind: menuSubmenu, Key: "›"},
+			{Label: "hotkeys", Kind: menuSubmenu, Key: "›"},
 		}
+	case "configuration · hotkeys":
+		// A reference list: every row is a hint, so there is nothing to select.
+		return nil
 	case "configuration · defaults":
 		return []menuEntry{
 			{Label: "edit mode as default", Key: onOff(m.Cfg.Defaults.EditMode), Kind: menuToggleEditDefault},
@@ -120,9 +125,17 @@ func (m Model) menuEntries() []menuEntry {
 		{Label: "new file", Key: "ctrl+n", Kind: menuNewFile},
 		{Label: "edit filename", Kind: menuRename},
 		{Label: "<> sidebar", Key: "ctrl+t", Kind: menuDispatch, Action: "toggleSidebar"},
-		{Label: "<> edit/preview", Kind: menuDispatch, Action: "toggleMode"},
+		m.modeEntry(),
 		{Label: "go home", Kind: menuGoHome, Gap: true},
 	}
+}
+
+// modeEntry names the mode it switches to, with the key that does the same.
+func (m Model) modeEntry() menuEntry {
+	if m.Mode == ModeEdit {
+		return menuEntry{Label: "Preview", Key: "esc", Kind: menuDispatch, Action: "toggleMode"}
+	}
+	return menuEntry{Label: "Edit", Key: m.footerKey("edit"), Kind: menuDispatch, Action: "toggleMode"}
 }
 
 // deleteEntry is destructive, so it sits at the bottom, separated from the rest.
@@ -152,6 +165,9 @@ func (m Model) menuActions() []menuEntry {
 				offered[entry.Action] = true
 			}
 		}
+		// The mode entry stands for these, so they would say it twice.
+		offered["edit"] = true
+		offered["cancelEdit"] = true
 		for _, hint := range m.modeEntries() {
 			if hint.Action == "" || offered[hint.Action] {
 				continue
@@ -216,6 +232,9 @@ func filterMenuEntries(entries []menuEntry, query string) []menuEntry {
 // menuHints are the mode's remaining hints: keys worth knowing that the menu
 // cannot run, such as the word-motion bindings.
 func (m Model) menuHints() []footerEntry {
+	if m.menuLevel() == "configuration · hotkeys" {
+		return hotkeyReference(m.Cfg.Prefix)
+	}
 	if m.Splash || m.menuLevel() != "" {
 		return nil
 	}
@@ -540,6 +559,7 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		if len(m.Menu.Path) > 0 {
 			m.Menu.Path = m.Menu.Path[:len(m.Menu.Path)-1]
 			m.Menu.Selected = 0
+			m.Menu.Scroll = 0
 			if m.menuShowsFilter() {
 				m.Menu.Selected = menuFilterFocus
 			}
@@ -554,6 +574,11 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		m.setStatus("actions closed", "info")
 		return nil
 	case "up":
+		if len(entries) == 0 {
+			// A reference list scrolls instead of moving a selection.
+			m.Menu.Scroll = max(0, m.Menu.Scroll-1)
+			return nil
+		}
 		// Above the first entry sits the filter, where the keyboard came from.
 		if m.Menu.Selected <= 0 && m.menuShowsFilter() {
 			m.Menu.Selected = menuFilterFocus
@@ -562,6 +587,13 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		m.Menu.Selected = clamp(m.Menu.Selected-1, 0, max(0, len(entries)-1))
 		return nil
 	case "down":
+		if len(entries) == 0 {
+			block := m.menuBlock()
+			body := max(0, len(block)-leadingChromeRows(block))
+			visible := max(1, m.menuHeight()-leadingChromeRows(block))
+			m.Menu.Scroll = min(m.Menu.Scroll+1, max(0, body-visible))
+			return nil
+		}
 		if m.Menu.Selected == menuFilterFocus {
 			m.Menu.Selected = 0
 			return nil
@@ -599,6 +631,7 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 			m.Menu.Path = append(m.Menu.Path, entry.Label)
 			m.Menu.Query = ""
 			m.Menu.Selected = 0
+			m.Menu.Scroll = 0
 			// A submenu has no filter, so it must not claim you can type.
 			m.setStatus(m.menuLevel()+" — ↑↓ select, enter apply, esc back", "info")
 		case menuToggleEditDefault:
@@ -674,6 +707,58 @@ func (m *Model) goHome() {
 	m.setStatus("home — ↑↓ select, enter open", "info")
 }
 
+// hotkeyReference is every binding glowed.md answers to, grouped by where it
+// applies. A footerEntry with an empty Key is a section heading.
+func hotkeyReference(prefix string) []footerEntry {
+	return []footerEntry{
+		{Label: "everywhere"},
+		{Key: "ctrl+p", Label: "action menu"},
+		{Key: "ctrl+n", Label: "new file"},
+		{Key: "ctrl+t", Label: "show/hide sidebar"},
+		{Key: "ctrl+b", Label: "show/hide sidebar (Ghostty claims it)"},
+		{Key: "shift+tab", Label: "focus sidebar / content"},
+		{Key: "ctrl+c", Label: "quit"},
+		{Key: prefix, Label: "prefix, then b / l / r / q"},
+
+		{Label: "browse and preview"},
+		{Key: "/", Label: "search"},
+		{Key: "e", Label: "edit the current document"},
+		{Key: "v", Label: "copy exact markdown"},
+		{Key: "r", Label: "rescan the project"},
+		{Key: "q", Label: "quit"},
+		{Key: "tab", Label: "cycle focus"},
+		{Key: "↑↓", Label: "select"},
+		{Key: "enter", Label: "open"},
+
+		{Label: "editing"},
+		{Key: "ctrl+s", Label: "save"},
+		{Key: "ctrl+z", Label: "undo"},
+		{Key: "ctrl+y", Label: "redo"},
+		{Key: "esc", Label: "clear selection, else leave editor"},
+		{Key: "opt+←→", Label: "move by word"},
+		{Key: "cmd+←→", Label: "line start/end (ctrl+a / ctrl+e)"},
+		{Key: "opt+⌫", Label: "delete the word before the caret"},
+		{Key: "opt+⌦", Label: "delete the word after the caret"},
+		{Key: "cmd+⌫", Label: "delete to line start (ctrl+u)"},
+		{Key: "ctrl+k", Label: "delete to line end"},
+		{Key: "shift+←→↑↓", Label: "extend the selection"},
+		{Key: "opt+shift+←→", Label: "extend the selection by word"},
+		{Key: "opt+a", Label: "select the whole buffer"},
+		{Key: "opt+c", Label: "copy the selection"},
+		{Key: "cmd+v", Label: "paste at the caret (opt+v)"},
+
+		{Label: "action menu"},
+		{Key: "type", Label: "filter actions and find documents"},
+		{Key: "↑↓", Label: "move between filter and entries"},
+		{Key: "enter", Label: "run the highlighted entry"},
+		{Key: "esc", Label: "clear filter, leave level, close"},
+
+		{Label: "welcome screen"},
+		{Key: "↑↓", Label: "select a recent document"},
+		{Key: "enter", Label: "open it"},
+	}
+}
+
 // menuBackdropColor is the 256-color index the menu paints its pane with. It
 // sits just above black so the overlay reads as dark as the editor rather than
 // as a light grey slab.
@@ -730,7 +815,7 @@ func (m Model) menuBlock() []menuRow {
 	}
 
 	entries := m.menuActions()
-	if len(entries) == 0 {
+	if len(entries) == 0 && m.menuShowsFilter() {
 		return append(rows, menuRow{Kind: menuRowEmpty, Label: "no match", Entry: -1})
 	}
 	docSection := false
@@ -761,12 +846,20 @@ func (m Model) menuBlock() []menuRow {
 		})
 	}
 	if hints := m.menuHints(); len(hints) > 0 {
-		rows = append(rows,
-			menuRow{Kind: menuRowBlank, Entry: -1},
-			menuRow{Kind: menuRowSection, Label: "keys", Entry: -1},
-		)
+		if m.menuLevel() == "" {
+			rows = append(rows,
+				menuRow{Kind: menuRowBlank, Entry: -1},
+				menuRow{Kind: menuRowSection, Label: "keys", Entry: -1},
+			)
+		}
 		for _, hint := range hints {
-			rows = append(rows, menuRow{Kind: menuRowHint, Label: hint.Label, Key: hint.Key, Entry: -1})
+			kind := menuRowHint
+			if hint.Key == "" {
+				// A heading, not a binding.
+				kind = menuRowSection
+				rows = append(rows, menuRow{Kind: menuRowBlank, Entry: -1})
+			}
+			rows = append(rows, menuRow{Kind: kind, Label: hint.Label, Key: hint.Key, Entry: -1})
 		}
 	}
 	return rows
@@ -775,12 +868,52 @@ func (m Model) menuBlock() []menuRow {
 // fitMenuBlock trims the block to the rows that are available. The hint section
 // goes first, because it is only reference material; if the runnable actions
 // still do not fit, the list scrolls to keep the selected one visible.
-func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
+// leadingChromeRows counts the title, blank and filter rows a block opens with;
+// they stay pinned when the rest of it scrolls.
+func leadingChromeRows(rows []menuRow) int {
+	n := 0
+	for _, row := range rows {
+		if row.Kind != menuRowTitle && row.Kind != menuRowBlank && row.Kind != menuRowFilter {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// hasAction reports whether a block carries a selectable entry.
+func hasAction(rows []menuRow) bool {
+	for _, row := range rows {
+		if row.Kind == menuRowAction {
+			return true
+		}
+	}
+	return false
+}
+
+func fitMenuBlock(rows []menuRow, height, selected, scroll int) []menuRow {
 	if height <= 0 {
 		return nil
 	}
-	// The reference section is the first thing to go: it is only material to
-	// read, not to run.
+	// A level with nothing to select is a reference list: it scrolls by offset
+	// rather than being trimmed, which would silently hide most of it.
+	if !hasAction(rows) {
+		headLen := leadingChromeRows(rows)
+		head := rows[:min(len(rows), headLen)]
+		if height <= len(head) {
+			return rows[:height]
+		}
+		avail := max(1, height-len(head))
+		body := rows[len(head):]
+		start := clamp(scroll, 0, max(0, len(body)-avail))
+		end := min(len(body), start+avail)
+		out := make([]menuRow, 0, len(head)+end-start)
+		out = append(out, head...)
+		return append(out, body[start:end]...)
+	}
+
+	// For a list with entries, the reference section is the first thing to go:
+	// it is only material to read, not to run.
 	for len(rows) > height && rows[len(rows)-1].Kind != menuRowAction {
 		rows = rows[:len(rows)-1]
 	}
@@ -792,14 +925,7 @@ func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
 	// bottom, so it can never scroll out of sight; the entries between them
 	// scroll to keep the selection visible.
 	// The title and the filter row stay put: the filter has the keyboard.
-	headLen := 0
-	for _, row := range rows {
-		if row.Kind != menuRowTitle && row.Kind != menuRowBlank && row.Kind != menuRowFilter {
-			break
-		}
-		headLen++
-	}
-	head := rows[:min(len(rows), headLen)]
+	head := rows[:min(len(rows), leadingChromeRows(rows))]
 	if height <= len(head) {
 		return rows[:height]
 	}
@@ -867,7 +993,7 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 	if !m.Menu.Active || width <= 0 {
 		return "", false
 	}
-	block := fitMenuBlock(m.menuBlock(), height, m.Menu.Selected)
+	block := fitMenuBlock(m.menuBlock(), height, m.Menu.Selected, m.Menu.Scroll)
 	if len(block) == 0 {
 		return styleMenuBackdrop.Render(strings.Repeat(" ", width)), true
 	}
@@ -878,6 +1004,10 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 	for _, line := range block {
 		labelWidth = max(labelWidth, runewidth.StringWidth(line.Label))
 		keyWidth = max(keyWidth, runewidth.StringWidth(line.Key))
+	}
+	// The key column has to fit, so a long label is what gives way.
+	if room := width - 2*menuPadX - menuKeyGap - keyWidth - menuSlack; labelWidth > room {
+		labelWidth = max(1, room)
 	}
 	keyColumn := labelWidth + menuKeyGap
 	blockWidth := min(width, menuPadX+keyColumn+keyWidth+menuPadX+menuSlack)
@@ -922,7 +1052,11 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 		}
 	}
 
-	inner := strings.Repeat(" ", menuPadX) + line.Label
+	label := line.Label
+	if runewidth.StringWidth(label) > labelWidth {
+		label = xansi.Truncate(label, labelWidth, "…")
+	}
+	inner := strings.Repeat(" ", menuPadX) + label
 	if line.Key != "" {
 		// Right-align the key inside its own column.
 		pad := menuPadX + keyColumn + keyWidth - runewidth.StringWidth(inner) - runewidth.StringWidth(line.Key)

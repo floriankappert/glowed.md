@@ -74,6 +74,9 @@ func TestNewFileKeepsAnExplicitMarkdownExtension(t *testing.T) {
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlN})
 	m = typeText(t, m, "note.md")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if filepath.Base(m.Editor.File) != "note.md" {
+		t.Fatalf("editing %q, want note.md", m.Editor.File)
+	}
 	if _, err := os.Stat(filepath.Join(root, "note.md")); err != nil {
 		t.Fatalf("note.md not created: %v", err)
 	}
@@ -348,6 +351,9 @@ func TestDeleteEscKeepsTheFile(t *testing.T) {
 	m, root := projectModel(t)
 	m = deletePrompt(t, m)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.Prompt.Active {
+		t.Fatal("esc left the confirmation open")
+	}
 	if _, err := os.Stat(filepath.Join(root, "alpha.md")); err != nil {
 		t.Fatalf("file deleted on esc: %v", err)
 	}
@@ -463,7 +469,7 @@ func TestActionMenuBlockIsCenteredWithLeftAlignedText(t *testing.T) {
 	_, newCol := labelRow("new file")
 	_, editCol := labelRow("edit filename")
 	_, deleteCol := labelRow("delete file")
-	block := fitMenuBlock(m.menuBlock(), m.contentHeight(), m.Menu.Selected)
+	block := fitMenuBlock(m.menuBlock(), m.contentHeight(), m.Menu.Selected, m.Menu.Scroll)
 	if len(block) != len(m.menuBlock()) {
 		t.Fatalf("setup: block does not fit, %d of %d rows", len(block), len(m.menuBlock()))
 	}
@@ -696,8 +702,8 @@ func menuText(t *testing.T, m Model) string {
 	m.Menu.Active = true
 	rows := []string{}
 	for i := 0; ; i++ {
-		row, ok := m.renderMenuRow(60, 24, i)
-		if !ok || i > 40 {
+		row, ok := m.renderMenuRow(60, 80, i)
+		if !ok || i > 100 {
 			break
 		}
 		rows = append(rows, stripANSI(row))
@@ -733,7 +739,7 @@ func TestToolbarKeepsTheActionMenuDiscoverable(t *testing.T) {
 func TestActionMenuShowsEditHintsInEditMode(t *testing.T) {
 	m := editModel([]string{"hello"}, 0, 0)
 	text := menuText(t, m)
-	for _, want := range []string{"save", "ctrl+s", "select all", "cancel", "word"} {
+	for _, want := range []string{"save", "ctrl+s", "select all", "Preview", "word"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("edit menu missing %q:\n%s", want, text)
 		}
@@ -823,7 +829,7 @@ func TestActionMenuFitsAShortPane(t *testing.T) {
 	m := layoutModel(t, 90, 26)
 	m.Menu = menuState{Active: true}
 	full := m.menuBlock()
-	fitted := fitMenuBlock(full, m.contentHeight(), m.Menu.Selected)
+	fitted := fitMenuBlock(full, m.contentHeight(), m.Menu.Selected, m.Menu.Scroll)
 
 	if len(fitted) > m.contentHeight() {
 		t.Fatalf("fitted block has %d rows, pane has %d", len(fitted), m.contentHeight())
@@ -851,8 +857,8 @@ func TestActionMenuFitsAShortPane(t *testing.T) {
 func TestActionMenuKeepsTheSelectionVisibleWhenScrolling(t *testing.T) {
 	m := layoutModel(t, 90, 14)
 	m.Menu = menuState{Active: true}
-	m = selectMenuLabel(t, m, "cancel")
-	fitted := fitMenuBlock(m.menuBlock(), 7, m.Menu.Selected)
+	m = selectMenuLabel(t, m, "undo")
+	fitted := fitMenuBlock(m.menuBlock(), 7, m.Menu.Selected, 0)
 	if len(fitted) > 7 {
 		t.Fatalf("fitted block has %d rows, want at most 7", len(fitted))
 	}
@@ -1022,10 +1028,8 @@ func TestActionMenuDeleteFromTheBottomStillConfirms(t *testing.T) {
 func TestActionMenuHasToggleEntries(t *testing.T) {
 	m, _ := projectModel(t)
 	text := menuText(t, m)
-	for _, want := range []string{"<> sidebar", "<> edit/preview"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("menu missing %q:\n%s", want, text)
-		}
+	if !strings.Contains(text, "<> sidebar") {
+		t.Fatalf("menu missing the sidebar toggle:\n%s", text)
 	}
 	// The old hint row for the sidebar would now say the same thing twice.
 	if strings.Count(text, "sidebar") != 1 {
@@ -1058,31 +1062,15 @@ func TestActionMenuTogglesTheSidebar(t *testing.T) {
 	}
 }
 
-func TestActionMenuTogglesEditAndPreview(t *testing.T) {
-	m, _ := projectModel(t)
-	if m.Mode != ModeEdit {
-		t.Fatalf("setup: mode = %v", modeName(m.Mode))
-	}
-	m = selectMenuLabel(t, m, "<> edit/preview")
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.Mode != ModePreview {
-		t.Fatalf("Mode = %v, want ModePreview", modeName(m.Mode))
-	}
-	m = selectMenuLabel(t, m, "<> edit/preview")
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.Mode != ModeEdit {
-		t.Fatalf("Mode = %v, want ModeEdit again", modeName(m.Mode))
-	}
-}
-
-// cancelEdit discards the buffer silently, so the toggle must not use it blindly.
+// cancelEdit discards the buffer silently, so the mode entry must not use it
+// blindly.
 func TestActionMenuToggleRefusesToDropUnsavedChanges(t *testing.T) {
 	m, _ := projectModel(t)
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
 	if !m.Editor.Dirty {
 		t.Fatal("setup: buffer not dirty")
 	}
-	m = selectMenuLabel(t, m, "<> edit/preview")
+	m = selectMenuLabel(t, m, "Preview")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Mode != ModeEdit {
 		t.Fatalf("Mode = %v, want the switch refused", modeName(m.Mode))
@@ -1157,8 +1145,8 @@ func TestActionMenuAlignsKeysInTheirOwnColumn(t *testing.T) {
 	if len(starts) != 1 {
 		t.Fatalf("keys end at %d different columns, want one shared column: %v", len(starts), starts)
 	}
-	if longest < 15 {
-		t.Fatalf("longest label is %d columns, expected the toggle entry", longest)
+	if longest < 10 {
+		t.Fatalf("longest label is only %d columns, expected the real entries", longest)
 	}
 }
 
@@ -1534,7 +1522,7 @@ func TestConfigurationSitsBelowDeleteBehindABlankRow(t *testing.T) {
 func TestActionMenuPinsTheBottomGroupWhenItScrolls(t *testing.T) {
 	m := layoutModel(t, 90, 34)
 	m.Menu = menuState{Active: true, Selected: 0}
-	fitted := fitMenuBlock(m.menuBlock(), 10, 0)
+	fitted := fitMenuBlock(m.menuBlock(), 10, 0, 0)
 	if len(fitted) > 10 {
 		t.Fatalf("fitted block has %d rows, want at most 10", len(fitted))
 	}

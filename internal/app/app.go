@@ -1893,11 +1893,6 @@ func (m *Model) insertText(text string) {
 	m.Editor.Dirty = true
 }
 
-func (m *Model) editorEnter() {
-	m.pushEditorUndo()
-	m.splitLine()
-}
-
 // splitLine breaks the line at the caret without recording an undo step.
 func (m *Model) splitLine() {
 	line := []rune(m.Editor.Lines[m.Editor.CY])
@@ -1976,7 +1971,7 @@ func (m Model) View() string {
 		return ""
 	}
 	if m.Splash {
-		return m.renderSplash()
+		return normalizeFrame(m.renderSplash(), m.Width, m.Height)
 	}
 	var b strings.Builder
 	b.WriteString("\x1b[5 q") // steady bar cursor for Ghostty/xterm
@@ -2000,7 +1995,29 @@ func (m Model) View() string {
 	b.WriteString(m.renderPaneBorder(false))
 	b.WriteByte('\n')
 	b.WriteString(m.renderToolbar())
-	return b.String()
+	// The row arithmetic above assumes there is room for the whole frame. On a
+	// terminal too small for it the frame is cut rather than allowed to overflow
+	// the alt-screen, which would corrupt the display.
+	return normalizeFrame(b.String(), m.Width, m.Height)
+}
+
+// normalizeFrame forces a rendered frame to exactly height rows of exactly
+// width columns.
+func normalizeFrame(frame string, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	rows := strings.Split(frame, "\n")
+	if len(rows) > height {
+		rows = rows[:height]
+	}
+	for i, row := range rows {
+		rows[i] = fitANSI(row, width)
+	}
+	for len(rows) < height {
+		rows = append(rows, fitANSI("", width))
+	}
+	return strings.Join(rows, "\n")
 }
 
 type paneKind int
@@ -2193,8 +2210,13 @@ func (m Model) renderToolbar() string {
 		return m.renderPrompt()
 	}
 	hint := styleCyan.Render("ctrl+p") + styleDim.Render(" actions ")
-	left := fitANSI(" "+styleDim.Render(m.pathLine()), max(1, m.Width-xansi.StringWidth(stripANSI(hint))))
-	return left + hint
+	hintWidth := xansi.StringWidth(stripANSI(hint))
+	path := " " + styleDim.Render(m.pathLine())
+	// On a narrow terminal the path is what the row is for.
+	if m.Width <= hintWidth+4 {
+		return fitANSI(path, m.Width)
+	}
+	return fitANSI(path, m.Width-hintWidth) + hint
 }
 
 // renderHeader draws the rows above the panes: the lightbulb mark, the name and
@@ -2429,10 +2451,6 @@ type footerEntry struct {
 	Action string // empty for hints that are not clickable
 }
 
-func (e footerEntry) plain() string {
-	return strings.TrimSpace(e.Key + " " + e.Label)
-}
-
 // modeEntries returns the hints for the current mode. Edit mode has its own
 // set because the browse bindings are not active while editing.
 func (m Model) modeEntries() []footerEntry {
@@ -2553,12 +2571,6 @@ func (m Model) leftWidth() int {
 }
 
 func (m Model) rightWidth() int { return m.rightInnerWidth() + 2 }
-func (m Model) chatWidth() int {
-	if !m.Chat.Visible {
-		return 0
-	}
-	return m.chatInnerWidth() + 2
-}
 
 // panePadLeft keeps the text of the content and chat panes off their border.
 const panePadLeft = 1
@@ -2569,8 +2581,6 @@ func (m Model) rightTextStartX() int { return max(1, m.leftWidth()) + panePadLef
 
 // contentTextWidth is the writable width of the content pane.
 func (m Model) contentTextWidth() int { return max(1, m.rightInnerWidth()-panePadLeft) }
-
-func (m Model) rightStartX() int { return m.rightTextStartX() }
 
 // chatStartX is where the chat region begins, on its shared divider.
 func (m Model) chatStartX() int {
@@ -2613,6 +2623,15 @@ func (m Model) chromeTopRows() int {
 		rows++
 	}
 	return rows
+}
+
+// menuHeight is how many rows the action menu can draw into: the whole screen
+// on the welcome screen, the content pane otherwise.
+func (m Model) menuHeight() int {
+	if m.Splash {
+		return m.Height
+	}
+	return m.contentHeight()
 }
 
 // searchRow is the row the search input sits on: the third row of the logo
@@ -2835,10 +2854,6 @@ func indexFromDisplayColumn(line string, target int) int {
 	return len(runes)
 }
 
-func sliceByDisplayRange(line string, start, width int) string {
-	return sliceStyled(line, start, width, nil, 0, 0, false)
-}
-
 func sliceByDisplayRangeStyled(line string, start, width int, selStart, selEnd int) string {
 	return sliceStyled(line, start, width, nil, selStart, selEnd, true)
 }
@@ -2847,6 +2862,10 @@ func sliceByDisplayRangeStyled(line string, start, width int, selStart, selEnd i
 // Syntax spans colorize runes; an active selection reverses them and wins over
 // any span color. Runes with the same appearance are emitted as one segment so
 // the output stays compact.
+// controlPlaceholder stands in for a control rune the buffer picked up from a
+// file, so it occupies one column and emits nothing of its own.
+const controlPlaceholder = '·'
+
 func sliceStyled(line string, start, width int, spans []render.Span, selStart, selEnd int, selected bool) string {
 	if width <= 0 {
 		return ""
@@ -2894,6 +2913,11 @@ func sliceStyled(line string, start, width int, spans []render.Span, selStart, s
 	}
 
 	for i, r := range runes {
+		// A control rune from a file on disk would be emitted raw and could
+		// corrupt the frame, so it is shown as a placeholder instead.
+		if unicode.IsControl(r) {
+			r = controlPlaceholder
+		}
 		rw := runewidth.RuneWidth(r)
 		next := col + rw
 		if next <= start {

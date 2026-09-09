@@ -3,6 +3,7 @@ package app
 import (
 	"hash/fnv"
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -168,8 +169,11 @@ func (m *Model) pasteIntoEditor(text string) {
 	if text == "" {
 		return
 	}
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = strings.ReplaceAll(text, "\r", "\n")
+	text = sanitizePasted(text)
+	if text == "" {
+		m.setStatus("nothing to paste", "warn")
+		return
+	}
 
 	m.pushEditorUndo()
 	if m.hasEditorSelection() {
@@ -202,6 +206,31 @@ func (m *Model) copyEditorSelection() tea.Cmd {
 	m.LastSelectionFile = m.Editor.File
 	m.LastSelectionPayload = text
 	return copyToClipboardCmd(text)
+}
+
+// sanitizePasted keeps a paste from carrying control characters into the
+// document, where they would be written to disk and rendered back into the
+// frame — an escape sequence among them can corrupt the display. Newlines are
+// normalised and kept, and a tab becomes the two spaces the tab key inserts.
+func sanitizePasted(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+
+	var b strings.Builder
+	b.Grow(len(text))
+	for _, r := range text {
+		switch {
+		case r == '\n':
+			b.WriteRune(r)
+		case r == '\t':
+			b.WriteString("  ")
+		case unicode.IsControl(r):
+			// dropped
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // pasteFromClipboard reads the system clipboard and inserts it at the caret.

@@ -109,6 +109,9 @@ func TestTogglingSidebarDefaultPersistsIt(t *testing.T) {
 	m = openMenu(t, m, "configuration", "defaults")
 	m = selectMenuLabel(t, m, "sidebar visible as default")
 	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Cfg.Defaults.SidebarVisible {
+		t.Fatal("the running model still has the sidebar default on")
+	}
 
 	saved, _ := config.Load(t.TempDir())
 	if saved.Defaults.SidebarVisible {
@@ -484,5 +487,194 @@ func TestSourceActionHasATellingLabel(t *testing.T) {
 	m.Focus = FocusPreview
 	if text := menuText(t, m); !strings.Contains(text, label) {
 		t.Fatalf("menu does not show %q:\n%s", label, text)
+	}
+}
+
+// --- the mode entry names the mode it switches to ---
+
+func TestModeEntryIsCalledPreviewWhileEditing(t *testing.T) {
+	m := configModel(t)
+	if m.Mode != ModeEdit {
+		t.Fatalf("setup: mode = %v", modeName(m.Mode))
+	}
+	var found *menuEntry
+	for i, entry := range m.menuActions() {
+		if entry.Action == "toggleMode" {
+			found = &m.menuActions()[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("no mode entry: %+v", m.menuActions())
+	}
+	if found.Label != "Preview" || found.Key != "esc" {
+		t.Fatalf("mode entry = %q / %q, want Preview / esc", found.Label, found.Key)
+	}
+	if strings.Contains(menuText(t, m), "edit/preview") {
+		t.Fatalf("the old label is still rendered:\n%s", menuText(t, m))
+	}
+	// The mode hint it replaces must not sit beside it.
+	if strings.Contains(menuText(t, m), "cancel") {
+		t.Fatalf("cancel duplicates the mode entry:\n%s", menuText(t, m))
+	}
+}
+
+func TestModeEntryIsCalledEditWhilePreviewing(t *testing.T) {
+	m := configModel(t)
+	m.Mode = ModePreview
+	m.Focus = FocusPreview
+	var found *menuEntry
+	entries := m.menuActions()
+	for i, entry := range entries {
+		if entry.Action == "toggleMode" {
+			found = &entries[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("no mode entry: %+v", entries)
+	}
+	if found.Label != "Edit" || found.Key != "e" {
+		t.Fatalf("mode entry = %q / %q, want Edit / e", found.Label, found.Key)
+	}
+	// "edit" from the mode actions would say the same thing twice.
+	count := 0
+	for _, entry := range entries {
+		if entry.Action == "edit" || entry.Action == "toggleMode" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("%d entries switch to the editor, want 1: %+v", count, entries)
+	}
+}
+
+func TestModeEntryStillSwitchesTheMode(t *testing.T) {
+	m := configModel(t)
+	m.Menu = menuState{Active: true}
+	m = selectMenuLabel(t, m, "Preview")
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode != ModePreview {
+		t.Fatalf("Mode = %v, want ModePreview", modeName(m.Mode))
+	}
+	m.Menu = menuState{Active: true}
+	m = selectMenuLabel(t, m, "Edit")
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode != ModeEdit {
+		t.Fatalf("Mode = %v, want ModeEdit", modeName(m.Mode))
+	}
+}
+
+// --- configuration › hotkeys ---
+
+func TestConfigurationOffersHotkeys(t *testing.T) {
+	m := configModel(t)
+	m = openMenu(t, m, "configuration")
+	text := menuText(t, m)
+	for _, want := range []string{"defaults", "hotkeys"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("configuration submenu missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestHotkeysLevelListsTheBindings(t *testing.T) {
+	m := configModel(t)
+	m = openMenu(t, m, "configuration", "hotkeys")
+	if m.menuLevel() != "configuration · hotkeys" {
+		t.Fatalf("level = %q", m.menuLevel())
+	}
+	hints := m.menuHints()
+	if len(hints) < 20 {
+		t.Fatalf("%d hotkeys listed, expected the full set", len(hints))
+	}
+	// Every row carries a key, and the sections group them.
+	for _, hint := range hints {
+		if hint.Label == "" {
+			t.Fatalf("hotkey row without a label: %+v", hint)
+		}
+	}
+	text := menuText(t, m)
+	for _, want := range []string{"ctrl+p", "ctrl+n", "ctrl+t", "ctrl+s", "opt+←→", "esc"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("hotkey list missing %q:\n%s", want, text)
+		}
+	}
+	// It is a reference list: nothing to run.
+	if len(m.menuActions()) != 0 {
+		t.Fatalf("hotkeys level offers runnable entries: %+v", m.menuActions())
+	}
+}
+
+// A list that long has to scroll, and it has no selection to follow.
+func TestHotkeysLevelScrolls(t *testing.T) {
+	m := configModel(t)
+	m.Width, m.Height = 90, 20
+	m = openMenu(t, m, "configuration", "hotkeys")
+
+	// Render into a window smaller than the list, the way a real pane is.
+	window := func(mm Model) string {
+		rows := []string{}
+		for i := 0; i < 14; i++ {
+			row, _ := mm.renderMenuRow(60, 14, i)
+			rows = append(rows, stripANSI(row))
+		}
+		return strings.Join(rows, "\n")
+	}
+
+	first := window(m)
+	for i := 0; i < 8; i++ {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if m.Menu.Scroll == 0 {
+		t.Fatal("down did not scroll the list")
+	}
+	if window(m) == first {
+		t.Fatalf("the rendered list did not change:\n%s", window(m))
+	}
+	// The title stays put while the body scrolls.
+	if !strings.Contains(window(m), "hotkeys") {
+		t.Fatalf("the title scrolled away:\n%s", window(m))
+	}
+	for i := 0; i < 40; i++ {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	}
+	if m.Menu.Scroll != 0 {
+		t.Fatalf("Menu.Scroll = %d, want it back at the top", m.Menu.Scroll)
+	}
+	if window(m) != first {
+		t.Fatal("scrolling back to the top did not restore the list")
+	}
+}
+
+// Scrolling stops at the end instead of running past it.
+func TestHotkeysScrollStopsAtTheEnd(t *testing.T) {
+	m := configModel(t)
+	m.Width, m.Height = 90, 20
+	m = openMenu(t, m, "configuration", "hotkeys")
+	for i := 0; i < 200; i++ {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	block := m.menuBlock()
+	body := len(block) - leadingChromeRows(block)
+	visible := m.menuHeight() - leadingChromeRows(block)
+	if m.Menu.Scroll > max(0, body-visible) {
+		t.Fatalf("Menu.Scroll = %d, want at most %d", m.Menu.Scroll, max(0, body-visible))
+	}
+	// The last binding is reachable.
+	rows := fitMenuBlock(block, m.menuHeight(), m.Menu.Selected, m.Menu.Scroll)
+	last := block[len(block)-1]
+	if rows[len(rows)-1].Label != last.Label {
+		t.Fatalf("bottom of the list = %q, want %q", rows[len(rows)-1].Label, last.Label)
+	}
+}
+
+func TestHotkeysLevelEscGoesBack(t *testing.T) {
+	m := configModel(t)
+	m = openMenu(t, m, "configuration", "hotkeys")
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.menuLevel() != "configuration" {
+		t.Fatalf("level = %q, want configuration", m.menuLevel())
+	}
+	if m.Menu.Scroll != 0 {
+		t.Fatalf("Menu.Scroll = %d, want it reset when leaving", m.Menu.Scroll)
 	}
 }

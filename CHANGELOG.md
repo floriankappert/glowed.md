@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.15 - 2026-09-09
+
+### Added
+
+- *configuration → hotkeys* lists every binding glowed.md answers to, grouped by where it applies. It is a reference list rather than a menu, so `↑` / `↓` scroll it while the title stays pinned.
+
+### Changed
+
+- The mode entry in the action menu names the mode it switches to: *Preview* with `esc` while editing, *Edit* with `e` while previewing. "toggle edit/preview" said neither. The mode hint it replaces no longer sits beside it.
+
+### Fixed
+
+- **Pasted text bypassed the control-character filter.** A paste could carry NUL, BEL or escape sequences into the document, from where they were written to disk and rendered back into the frame — an escape sequence there can corrupt the display. Pastes are now stripped of control characters; newlines survive and a tab becomes the two spaces the tab key inserts.
+- A control rune that came from a file on disk is drawn as `·` instead of being emitted raw. The buffer keeps the file faithful, so a save does not rewrite it.
+- The frame no longer overflows on a terminal too small for it: after rendering, it is forced to exactly the terminal's width and height. At 1×1 with a prompt open it used to produce five rows.
+- The bottom row no longer overruns its width on a narrow terminal; the `ctrl+p actions` hint gives way to the path.
+- A long menu label no longer pushes the key column out of the box; the label is truncated instead.
+- A level with nothing to select is no longer trimmed to the first screenful, which would have hidden most of the hotkey list; it scrolls.
+
+### Removed
+
+- Deleted five functions the fork's own rework had orphaned (`editorEnter`, `chatWidth`, `rightStartX`, `sliceByDisplayRange`, `footerEntry.plain`). `staticcheck` reports no dead code of this fork's making any more.
+
+
 ## v0.2.2-floriankappert.14 - 2026-09-09
 
 ### Added
