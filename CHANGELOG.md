@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.9 - 2026-09-09
+
+### Added
+
+- The action menu opens with a filter row that has the keyboard, so `ctrl+p` and typing is enough: entries are filtered by label and key, `↑` / `↓` move through the matches, `enter` runs the highlighted one, and `esc` clears the filter before it closes the menu. Because typing goes into the filter, `j` / `k` are no longer navigation keys there.
+
+### Changed
+
+- The welcome screen's action menu offers only what makes sense there: open the highlighted file, new file, quit. Renaming or deleting a document that is not open, and the mode actions, are gone from it — they remain in the main window.
+
+### Removed
+
+- Dropped the code that kept you on the welcome screen after a rename or delete, along with the welcome-screen branch of the action target: neither is reachable now that those actions are gone from that screen.
+
+
 ## v0.2.2-floriankappert.8 - 2026-09-09
 
 ### Added

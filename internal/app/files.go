@@ -36,6 +36,7 @@ type promptState struct {
 type menuState struct {
 	Active   bool
 	Selected int
+	Query    string // filter, typed straight into the menu
 }
 
 // menuAction is what an action-menu entry does: the file actions, going back to
@@ -47,6 +48,7 @@ const (
 	menuRename
 	menuDelete
 	menuGoHome
+	menuOpenSelection
 	menuDispatch
 )
 
@@ -59,21 +61,24 @@ type menuEntry struct {
 	Gap    bool   // preceded by a blank row
 }
 
-// menuEntries are the app actions, in display order. "go home" is left out on
-// the welcome screen, where it would do nothing.
+// menuEntries are the app actions, in display order. The welcome screen gets
+// its own short list: renaming or deleting a file that is not open makes no
+// sense there, and neither do the mode actions.
 func (m Model) menuEntries() []menuEntry {
-	entries := []menuEntry{
+	if m.Splash {
+		return []menuEntry{
+			{Label: "open", Key: "enter", Kind: menuOpenSelection},
+			{Label: "new file", Key: "ctrl+n", Kind: menuNewFile},
+			{Label: "quit", Key: m.footerKey("quit"), Kind: menuDispatch, Action: "quit"},
+		}
+	}
+	return []menuEntry{
 		{Label: "new file", Key: "ctrl+n", Kind: menuNewFile},
 		{Label: "edit filename", Kind: menuRename},
+		{Label: "<> sidebar", Key: "ctrl+t", Kind: menuDispatch, Action: "toggleSidebar"},
+		{Label: "<> edit/preview", Kind: menuDispatch, Action: "toggleMode"},
+		{Label: "go home", Kind: menuGoHome, Gap: true},
 	}
-	if !m.Splash {
-		entries = append(entries,
-			menuEntry{Label: "<> sidebar", Key: "ctrl+t", Kind: menuDispatch, Action: "toggleSidebar"},
-			menuEntry{Label: "<> edit/preview", Kind: menuDispatch, Action: "toggleMode"},
-			menuEntry{Label: "go home", Kind: menuGoHome, Gap: true},
-		)
-	}
-	return entries
 }
 
 // deleteEntry is destructive, so it sits at the bottom, separated from the rest.
@@ -81,9 +86,10 @@ func deleteEntry() menuEntry {
 	return menuEntry{Label: "delete file", Kind: menuDelete, Danger: true}
 }
 
-// menuActions are every selectable entry: the app actions, the actions the
-// current mode offers, and the destructive one last. The mode's hints used to
-// sit in a footer bar; the ones that can be run are runnable here.
+// menuActions are the selectable entries that match the filter: the app
+// actions, the actions the current mode offers, and the destructive one last.
+// The mode's hints used to sit in a footer bar; the ones that can be run are
+// runnable here.
 func (m Model) menuActions() []menuEntry {
 	entries := m.menuEntries()
 	if !m.Splash {
@@ -104,8 +110,27 @@ func (m Model) menuActions() []menuEntry {
 				Action: hint.Action,
 			})
 		}
+		entries = append(entries, deleteEntry())
 	}
-	return append(entries, deleteEntry())
+	return filterMenuEntries(entries, m.Menu.Query)
+}
+
+// filterMenuEntries keeps the entries whose label or key contains the query.
+func filterMenuEntries(entries []menuEntry, query string) []menuEntry {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return entries
+	}
+	out := entries[:0:0]
+	for _, entry := range entries {
+		if strings.Contains(strings.ToLower(entry.Label), query) ||
+			strings.Contains(strings.ToLower(entry.Key), query) {
+			// A filtered list has no groups left to separate.
+			entry.Gap = false
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 // menuHints are the mode's remaining hints: keys worth knowing that the menu
@@ -114,32 +139,23 @@ func (m Model) menuHints() []footerEntry {
 	if m.Splash {
 		return nil
 	}
+	query := strings.ToLower(strings.TrimSpace(m.Menu.Query))
 	hints := []footerEntry{}
 	for _, hint := range m.modeEntries() {
 		if hint.Action != "" {
 			continue
 		}
-		// The sidebar hint would repeat the runnable "toggle sidebar" entry.
+		// The sidebar hint would repeat the runnable "<> sidebar" entry.
 		if hint.Label == "sidebar" {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(hint.Label), query) &&
+			!strings.Contains(strings.ToLower(hint.Key), query) {
 			continue
 		}
 		hints = append(hints, hint)
 	}
 	return hints
-}
-
-// actionTargetDoc is the document the rename and delete actions act on: the
-// highlighted recent file on the welcome screen, the open document otherwise.
-func (m Model) actionTargetDoc() *docs.Document {
-	if !m.Splash {
-		return m.currentDoc()
-	}
-	recent := m.recentDocs()
-	if len(recent) == 0 {
-		return nil
-	}
-	doc := recent[clamp(m.SplashSelected, 0, len(recent)-1)]
-	return &doc
 }
 
 // --- prompt ---
@@ -152,7 +168,7 @@ func (m *Model) openNewFilePrompt() {
 
 func (m *Model) openRenamePrompt() {
 	m.Menu.Active = false
-	doc := m.actionTargetDoc()
+	doc := m.currentDoc()
 	if doc == nil {
 		m.setStatus("no document to rename", "warn")
 		return
@@ -167,7 +183,7 @@ func (m *Model) openRenamePrompt() {
 
 func (m *Model) openDeletePrompt() {
 	m.Menu.Active = false
-	doc := m.actionTargetDoc()
+	doc := m.currentDoc()
 	if doc == nil {
 		m.setStatus("no document to delete", "warn")
 		return
@@ -322,10 +338,6 @@ func (m *Model) renameFileFromPrompt() {
 	}
 
 	m.closePrompt()
-	if m.Splash {
-		m.refreshAfterFileChange(target, "renamed to "+m.relToRoot(target))
-		return
-	}
 	m.openPathForEditing(target, "renamed to "+m.relToRoot(target))
 }
 
@@ -354,11 +366,6 @@ func (m *Model) deleteCurrentFile() {
 	}
 
 	m.closePrompt()
-	if m.Splash {
-		m.SplashSelected = 0
-		m.refreshAfterFileChange("", fmt.Sprintf("deleted %s (backup %s)", rel, filepath.Base(backup)))
-		return
-	}
 	if m.Editor.File != "" && m.pathsMatch(m.Editor.File, path) {
 		m.Editor = editorState{Lines: []string{""}}
 		m.clearEditorSelection()
@@ -376,29 +383,6 @@ func (m *Model) deleteCurrentFile() {
 		m.reloadPreview()
 	}
 	m.setStatus(fmt.Sprintf("deleted %s (backup %s)", rel, filepath.Base(backup)), "success")
-}
-
-// refreshAfterFileChange rescans and keeps the current screen, selecting path
-// when one is given. It is the welcome-screen counterpart of
-// openPathForEditing, which would drop you into the editor.
-func (m *Model) refreshAfterFileChange(path, message string) {
-	if err := m.scanAndApply(true); err != nil {
-		m.setStatus(err.Error(), "error")
-		return
-	}
-	m.rebuildSidebarRows()
-	if path != "" {
-		m.selectPath(path)
-		if recent := m.recentDocs(); len(recent) > 0 {
-			for i, doc := range recent {
-				if m.pathsMatch(doc.Abs, path) {
-					m.SplashSelected = i
-					break
-				}
-			}
-		}
-	}
-	m.setStatus(message, "success")
 }
 
 // openPathForEditing rescans, selects path and opens it in the editor.
@@ -445,20 +429,46 @@ func (m *Model) toggleActionMenu() {
 		return
 	}
 	m.Menu = menuState{Active: true}
-	m.setStatus("actions — ↑↓ select, enter run, esc close", "info")
+	m.setStatus("actions — type to filter, ↑↓ select, enter run, esc close", "info")
 }
 
-func (m *Model) handleMenuKey(key string) tea.Cmd {
+func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
+	key := normalizeKey(msg.String())
 	entries := m.menuActions()
+
 	switch key {
-	case "esc", "ctrl+p":
+	case "ctrl+p":
 		m.Menu.Active = false
 		m.setStatus("actions closed", "info")
-	case "up", "k":
-		m.Menu.Selected = clamp(m.Menu.Selected-1, 0, len(entries)-1)
-	case "down", "j":
-		m.Menu.Selected = clamp(m.Menu.Selected+1, 0, len(entries)-1)
+		return nil
+	case "esc":
+		// A typo should not close the menu, so the filter goes first.
+		if m.Menu.Query != "" {
+			m.Menu.Query = ""
+			m.Menu.Selected = 0
+			return nil
+		}
+		m.Menu.Active = false
+		m.setStatus("actions closed", "info")
+		return nil
+	case "up":
+		m.Menu.Selected = clamp(m.Menu.Selected-1, 0, max(0, len(entries)-1))
+		return nil
+	case "down":
+		m.Menu.Selected = clamp(m.Menu.Selected+1, 0, max(0, len(entries)-1))
+		return nil
+	case "backspace":
+		runes := []rune(m.Menu.Query)
+		if len(runes) > 0 {
+			m.Menu.Query = string(runes[:len(runes)-1])
+			m.Menu.Selected = 0
+		}
+		return nil
 	case "enter":
+		if len(entries) == 0 {
+			m.setStatus("no action matches "+m.Menu.Query, "warn")
+			return nil
+		}
 		entry := entries[clamp(m.Menu.Selected, 0, len(entries)-1)]
 		switch entry.Kind {
 		case menuNewFile:
@@ -469,12 +479,26 @@ func (m *Model) handleMenuKey(key string) tea.Cmd {
 			m.openDeletePrompt()
 		case menuGoHome:
 			m.goHome()
+		case menuOpenSelection:
+			m.Menu.Active = false
+			m.openWelcomeSelection()
 		case menuDispatch:
 			m.Menu.Active = false
 			next, cmd := m.dispatch(entry.Action)
 			*m = next
 			return cmd
 		}
+		return nil
+	}
+
+	// Everything else is typed into the filter, so no letter can be a
+	// navigation key here.
+	if msg.Type == tea.KeyRunes && !msg.Alt {
+		m.Menu.Query += string(msg.Runes)
+		m.Menu.Selected = 0
+	} else if msg.Type == tea.KeySpace {
+		m.Menu.Query += " "
+		m.Menu.Selected = 0
 	}
 	return nil
 }
@@ -514,9 +538,11 @@ type menuRowKind int
 const (
 	menuRowTitle menuRowKind = iota
 	menuRowBlank
+	menuRowFilter
 	menuRowAction
 	menuRowSection
 	menuRowHint
+	menuRowEmpty
 )
 
 // menuRow is one line of the menu block. Entry is the index into menuActions
@@ -532,17 +558,18 @@ type menuRow struct {
 // menuBlock is the menu text, top to bottom: the runnable actions first, then
 // the keys the menu cannot run but that are worth knowing.
 func (m Model) menuBlock() []menuRow {
-	title := "actions"
-	if m.Splash {
-		if doc := m.actionTargetDoc(); doc != nil {
-			title += " · " + doc.Rel
-		}
-	}
 	rows := []menuRow{
-		{Kind: menuRowTitle, Label: title, Entry: -1},
+		{Kind: menuRowTitle, Label: "actions", Entry: -1},
+		{Kind: menuRowBlank, Entry: -1},
+		{Kind: menuRowFilter, Label: m.Menu.Query, Entry: -1},
 		{Kind: menuRowBlank, Entry: -1},
 	}
-	for i, entry := range m.menuActions() {
+
+	entries := m.menuActions()
+	if len(entries) == 0 {
+		return append(rows, menuRow{Kind: menuRowEmpty, Label: "no match", Entry: -1})
+	}
+	for i, entry := range entries {
 		if entry.Danger || entry.Gap {
 			rows = append(rows, menuRow{Kind: menuRowBlank, Entry: -1})
 		}
@@ -585,9 +612,13 @@ func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
 	// The title stays pinned at the top and the destructive entry at the
 	// bottom, so it can never scroll out of sight; the entries between them
 	// scroll to keep the selection visible.
-	head := rows[:1]
+	// The title and the filter row stay put: the filter has the keyboard.
+	head := rows[:min(len(rows), 4)]
+	if height <= len(head) {
+		return rows[:height]
+	}
 	tail := []menuRow{}
-	body := rows[1:]
+	body := rows[len(head):]
 	if last := body[len(body)-1]; last.Danger {
 		tail = []menuRow{last}
 		body = body[:len(body)-1]
@@ -596,7 +627,12 @@ func fitMenuBlock(rows []menuRow, height, selected int) []menuRow {
 		}
 	}
 
-	avail := max(1, height-len(head)-len(tail))
+	avail := height - len(head) - len(tail)
+	if avail < 1 {
+		// Too short even for the pinned rows: the entries win.
+		tail = nil
+		avail = height - len(head)
+	}
 	sel := 0
 	for i, row := range body {
 		if row.Kind == menuRowAction && row.Entry == selected {
@@ -650,8 +686,19 @@ func (m Model) renderMenuRow(width, height, row int) (string, bool) {
 	switch line.Kind {
 	case menuRowTitle:
 		style = styleMenuTitle
-	case menuRowSection, menuRowHint:
+	case menuRowSection, menuRowHint, menuRowEmpty:
 		style = styleMenuHint
+	}
+	if line.Kind == menuRowFilter {
+		// The filter owns the keyboard, so it carries the caret.
+		field := styleMenuFilter.Render(strings.Repeat(" ", menuPadX)+"› "+line.Label) +
+			styleMenuCaret.Render(" ")
+		pad := max(0, blockWidth-menuPadX-2-runewidth.StringWidth(line.Label)-1)
+		field += styleMenuFilter.Render(strings.Repeat(" ", pad))
+		right := max(0, width-left-blockWidth)
+		return styleMenuBackdrop.Render(strings.Repeat(" ", left)) +
+			field +
+			styleMenuBackdrop.Render(strings.Repeat(" ", right)), true
 	}
 	if line.Danger {
 		style = styleMenuDanger

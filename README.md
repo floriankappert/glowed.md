@@ -94,7 +94,9 @@ an editor and reshapes the surrounding UI.
 - It stays up until a file is picked, and is skipped when a file is passed on
   the command line — an explicit argument is the selection.
 - `ctrl+n` and `ctrl+p` work there too, so an empty project is not a dead end.
-  The action menu targets the highlighted recent file and names it in its title.
+  The action menu offers only what makes sense on the welcome screen — open the
+  highlighted file, new file, quit — not the mode actions or file operations on
+  a document that is not open.
 - *go home* in the action menu returns to it.
 
 ### Layout
@@ -123,7 +125,11 @@ an editor and reshapes the surrounding UI.
 - `ctrl+n` creates a new Markdown file. The name is typed into the bottom row,
   the file is created next to the current document, and `.md` is appended when
   the name carries no extension.
-- `ctrl+p` opens the action menu: new file, edit filename, `<> sidebar`,
+- `ctrl+p` opens the action menu with the filter focused, so you can type
+  straight away: the entries are filtered by label and key as you type, `↑` /
+  `↓` move through the matches, `enter` runs the highlighted one, and `esc`
+  clears the filter before it closes the menu.
+- The menu offers new file, edit filename, `<> sidebar`,
   `<> edit/preview`, go home, then the runnable actions of the current mode and
   a reference list of the keys it cannot run. Labels and keys sit in their own
   columns. *delete file* sits apart at the bottom, behind a blank row and in

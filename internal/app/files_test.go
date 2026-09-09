@@ -619,10 +619,40 @@ func welcomeMenuModel(t *testing.T, names ...string) Model {
 func TestActionMenuOpensOnTheWelcomeScreen(t *testing.T) {
 	m := welcomeMenuModel(t, "one.md", "two.md")
 	view := stripANSI(m.View())
-	for _, want := range []string{"actions", "new file", "edit filename", "delete file"} {
+	for _, want := range []string{"actions", "open", "new file", "quit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("welcome screen menu missing %q:\n%s", want, view)
 		}
+	}
+	// Renaming or deleting a file you have not opened makes no sense here, and
+	// the mode actions have no meaning either.
+	for _, unwanted := range []string{"edit filename", "delete file", "go home", "<> edit/preview", "save"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("welcome screen menu still offers %q:\n%s", unwanted, view)
+		}
+	}
+}
+
+func TestWelcomeMenuOpenOpensTheHighlightedFile(t *testing.T) {
+	m := welcomeModel(t, "older.md", "newer.md")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown}) // second entry: older.md
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = selectMenuLabel(t, m, "open")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Splash {
+		t.Fatal("open did not leave the welcome screen")
+	}
+	if filepath.Base(m.Editor.File) != "older.md" {
+		t.Fatalf("opened %q, want older.md", m.Editor.File)
+	}
+}
+
+func TestWelcomeMenuQuitReturnsACommand(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md")
+	m = selectMenuLabel(t, m, "quit")
+	_, cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("quit from the welcome menu returned no command")
 	}
 }
 
@@ -659,68 +689,10 @@ func TestWelcomeMenuArrowsAndEscWork(t *testing.T) {
 	}
 }
 
-// On the welcome screen the actions target the highlighted recent file, not
-// whatever the sidebar selection happens to be.
-func TestWelcomeMenuRenameTargetsTheHighlightedFile(t *testing.T) {
-	m := welcomeModel(t, "older.md", "newer.md")
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown}) // second entry: older.md
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyCtrlP})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.Prompt.Input != "older.md" {
-		t.Fatalf("Prompt.Input = %q, want older.md", m.Prompt.Input)
-	}
-}
-
-func TestWelcomeMenuRenameKeepsYouHome(t *testing.T) {
-	m := welcomeModel(t, "one.md", "two.md")
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyCtrlP})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
-	for range m.Prompt.Input {
-		m, _ = m.update(tea.KeyMsg{Type: tea.KeyBackspace})
-	}
-	for _, r := range "renamed.md" {
-		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-	}
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
-
-	if !m.Splash {
-		t.Fatal("rename left the welcome screen")
-	}
-	if _, err := os.Stat(filepath.Join(m.Root, "renamed.md")); err != nil {
-		t.Fatalf("file not renamed: %v", err)
-	}
-	if !strings.Contains(stripANSI(m.View()), "renamed.md") {
-		t.Fatal("recent list not refreshed after the rename")
-	}
-}
-
-func TestWelcomeMenuDeleteKeepsYouHome(t *testing.T) {
-	m := welcomeModel(t, "one.md", "two.md")
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyCtrlP})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyDown})
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(toolbarText(m), "two.md") {
-		t.Fatalf("confirmation does not name the highlighted file: %q", toolbarText(m))
-	}
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-
-	if !m.Splash {
-		t.Fatal("delete left the welcome screen")
-	}
-	if _, err := os.Stat(filepath.Join(m.Root, "two.md")); err == nil {
-		t.Fatal("file not deleted")
-	}
-	if strings.Contains(stripANSI(m.View()), "two.md") {
-		t.Fatal("deleted file still listed")
-	}
-}
-
 func TestWelcomeMenuNewFileOpensTheEditor(t *testing.T) {
 	m := welcomeMenuModel(t, "one.md")
-	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter}) // new file
+	m = selectMenuLabel(t, m, "new file")
+	m, _ = m.update(tea.KeyMsg{Type: tea.KeyEnter})
 	for _, r := range "fresh" {
 		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
@@ -831,7 +803,7 @@ func TestActionMenuSelectionOnlyVisitsRunnableEntries(t *testing.T) {
 		if m.Menu.Selected < 0 || m.Menu.Selected >= len(entries) {
 			t.Fatalf("selection %d out of range for %d entries", m.Menu.Selected, len(entries))
 		}
-		m.handleMenuKey("down")
+		m.handleMenuKey(tea.KeyMsg{Type: tea.KeyDown})
 	}
 	for _, e := range entries {
 		if e.Kind == menuDispatch && e.Action == "" {
@@ -852,7 +824,7 @@ func TestActionMenuRunsAModeAction(t *testing.T) {
 			m.Menu.Selected = i
 		}
 	}
-	m.handleMenuKey("enter")
+	m.handleMenuKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Editor.Dirty {
 		t.Fatalf("save from the menu did not save: %q", m.Status)
 	}
@@ -865,7 +837,7 @@ func TestActionMenuRunsAModeAction(t *testing.T) {
 // loses a runnable action.
 func TestActionMenuFitsAShortPane(t *testing.T) {
 	// Tall enough for every action, too short for the hint section.
-	m := layoutModel(t, 90, 20)
+	m := layoutModel(t, 90, 26)
 	m.Menu = menuState{Active: true}
 	full := m.menuBlock()
 	fitted := fitMenuBlock(full, m.contentHeight(), m.Menu.Selected)
@@ -896,9 +868,9 @@ func TestActionMenuFitsAShortPane(t *testing.T) {
 func TestActionMenuKeepsTheSelectionVisibleWhenScrolling(t *testing.T) {
 	m := layoutModel(t, 90, 14)
 	m.Menu = menuState{Active: true, Selected: len(m.menuActions()) - 1}
-	fitted := fitMenuBlock(m.menuBlock(), 5, m.Menu.Selected)
-	if len(fitted) > 5 {
-		t.Fatalf("fitted block has %d rows, want at most 5", len(fitted))
+	fitted := fitMenuBlock(m.menuBlock(), 7, m.Menu.Selected)
+	if len(fitted) > 7 {
+		t.Fatalf("fitted block has %d rows, want at most 7", len(fitted))
 	}
 	visible := false
 	for _, row := range fitted {
@@ -1216,5 +1188,156 @@ func TestActionMenuPinsDeleteWhenItScrolls(t *testing.T) {
 	}
 	if last := fitted[len(fitted)-1]; !last.Danger {
 		t.Fatalf("last row is %q, want the destructive entry pinned at the bottom", last.Label)
+	}
+}
+
+// --- the menu filter ---
+
+func TestActionMenuStartsWithAnEmptyFilterAndFirstMatchHighlighted(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	if m.Menu.Query != "" {
+		t.Fatalf("Menu.Query = %q, want empty", m.Menu.Query)
+	}
+	if m.Menu.Selected != 0 {
+		t.Fatalf("Menu.Selected = %d, want the first match highlighted", m.Menu.Selected)
+	}
+	if !strings.Contains(menuText(t, m), "actions") {
+		t.Fatal("menu title missing")
+	}
+}
+
+// Typing goes straight into the filter, so no letter may be a navigation key.
+func TestActionMenuTypingFiltersTheEntries(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "undo" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.Menu.Query != "undo" {
+		t.Fatalf("Menu.Query = %q, want %q", m.Menu.Query, "undo")
+	}
+	matches := m.menuActions()
+	if len(matches) != 1 || matches[0].Label != "undo" {
+		t.Fatalf("filtered entries = %+v, want only undo", matches)
+	}
+	text := menuText(t, m)
+	if strings.Contains(text, "new file") {
+		t.Fatalf("unfiltered entry still shown:\n%s", text)
+	}
+	if !strings.Contains(text, "undo") {
+		t.Fatalf("match not shown:\n%s", text)
+	}
+}
+
+func TestActionMenuFilterIsCaseInsensitiveAndMatchesKeys(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "CTRL+N" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	matches := m.menuActions()
+	if len(matches) != 1 || matches[0].Label != "new file" {
+		t.Fatalf("filtered entries = %+v, want new file matched by its key", matches)
+	}
+}
+
+func TestActionMenuEnterRunsTheFirstMatch(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "filename" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.Prompt.Active || m.Prompt.Kind != promptRename {
+		t.Fatalf("enter did not run the filtered match: prompt=%+v status=%q", m.Prompt, m.Status)
+	}
+}
+
+func TestActionMenuDownMovesThroughTheMatches(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.Menu.Selected != 1 {
+		t.Fatalf("Menu.Selected = %d, want 1", m.Menu.Selected)
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.Menu.Selected != 0 {
+		t.Fatalf("Menu.Selected = %d, want 0", m.Menu.Selected)
+	}
+}
+
+func TestActionMenuBackspaceEditsTheFilter(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "undo" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.Menu.Query != "und" {
+		t.Fatalf("Menu.Query = %q, want %q", m.Menu.Query, "und")
+	}
+}
+
+// esc clears a filter first, so a typo does not close the menu.
+func TestActionMenuEscClearsTheFilterBeforeClosing(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if !m.Menu.Active {
+		t.Fatal("esc closed the menu instead of clearing the filter")
+	}
+	if m.Menu.Query != "" {
+		t.Fatalf("Menu.Query = %q, want it cleared", m.Menu.Query)
+	}
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.Menu.Active {
+		t.Fatal("esc did not close the menu on an empty filter")
+	}
+}
+
+func TestActionMenuFilterWithoutMatchesSaysSo(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "zzz" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if len(m.menuActions()) != 0 {
+		t.Fatalf("expected no matches, got %+v", m.menuActions())
+	}
+	if text := menuText(t, m); !strings.Contains(text, "no match") {
+		t.Fatalf("menu does not report the empty result:\n%s", text)
+	}
+	// enter must not run anything.
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Prompt.Active {
+		t.Fatal("enter ran an action although nothing matched")
+	}
+}
+
+func TestActionMenuFilterWorksOnTheWelcomeScreen(t *testing.T) {
+	m := welcomeMenuModel(t, "one.md")
+	for _, r := range "new" {
+		m, _ = m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.Menu.Query != "new" {
+		t.Fatalf("Menu.Query = %q on the welcome screen", m.Menu.Query)
+	}
+	matches := m.menuActions()
+	if len(matches) != 1 || matches[0].Kind != menuNewFile {
+		t.Fatalf("filtered entries = %+v, want new file", matches)
+	}
+}
+
+func TestActionMenuShowsTheFilterRow(t *testing.T) {
+	m, _ := projectModel(t)
+	m = press(t, m, tea.KeyMsg{Type: tea.KeyCtrlP})
+	for _, r := range "sid" {
+		m = press(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	text := menuText(t, m)
+	if !strings.Contains(text, "sid") {
+		t.Fatalf("filter row does not show the query:\n%s", text)
 	}
 }

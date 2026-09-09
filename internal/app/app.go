@@ -169,6 +169,8 @@ var (
 	styleMenuEntry    = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("15"))
 	styleMenuSelected = lipgloss.NewStyle().Background(lipgloss.Color("12")).Foreground(lipgloss.Color("0")).Bold(true)
 	styleMenuHint     = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("8"))
+	styleMenuFilter   = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("14"))
+	styleMenuCaret    = lipgloss.NewStyle().Reverse(true)
 
 	// Destructive entries are set apart in red.
 	styleMenuDanger         = lipgloss.NewStyle().Background(lipgloss.Color(menuBackdropColor)).Foreground(lipgloss.Color("9"))
@@ -251,7 +253,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 				return m, cmd
 			}
 			if m.Menu.Active {
-				cmd := m.handleMenuKey(name)
+				cmd := m.handleMenuKey(key)
 				return m, cmd
 			}
 			if name == "ctrl+n" {
@@ -314,7 +316,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.Menu.Active {
-		cmd := m.handleMenuKey(key)
+		cmd := m.handleMenuKey(msg)
 		return m, cmd
 	}
 	if key == "ctrl+n" {
