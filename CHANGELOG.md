@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## v0.2.2-floriankappert.3 - 2026-09-09
+
+### Added
+
+- The header above the panes now carries the yellow lightbulb mark, with the name and mode beside it and the current file underneath. On terminals shorter than 12 rows it collapses back into a single row so the frame still fits.
+- Added a welcome screen on launch: a yellow lightbulb mark next to the version and project root, plus the 7 most recently modified documents under a "Recent files" heading. `↑` / `↓` select, `enter` opens the file in the editor. It stays up until a file is picked, and is skipped when a file is passed on the command line.
+- Added `ctrl+n` to create a new Markdown file. The filename is entered in the toolbar row, the file is created next to the current document, and `.md` is appended when the name has no extension.
+- Added `ctrl+p` to open a file action menu: new file, edit filename, delete file. `ctrl+k` was not used for it because it already deletes to the line end in edit mode. The menu covers the content pane with its own backdrop, and its entries sit centered in the pane while staying left-aligned with each other.
+- Added renaming the current document from the action menu, refusing an existing target name and refusing to run while the buffer has unsaved changes.
+- Added deleting the current document from the action menu. It asks for confirmation (`y`) and keeps a `<name>.md.bak` copy, so the delete stays recoverable.
+- Added `docs.GuardNewPath` so create and rename are checked against the project root before touching the filesystem, the way opening and saving already were.
+- The Markdown scan now records each file's modification time, which is what the welcome screen orders by.
+
+### Changed
+
+- The sidebar is now visible on launch instead of hidden.
+- The search row below the header is only rendered while the search has focus or a query is set. An idle frame spends that row on content instead of a placeholder.
+- The README now documents how this fork differs from the upstream project, and points its install instructions at this fork and the `floriankappert/tap` Homebrew tap.
+
+### Fixed
+
+- The caret now follows the focus: while the filename prompt or the action menu is open, the buffer stops drawing its own caret, so only the line that owns the keyboard shows one.
+- The edit-mode caret no longer pushes the rest of the line one column to the right: it now covers the cell it sits on instead of being inserted before it. Wide runes stay intact.
+- Corrected the documented copy shortcut: `cmd+c` cannot reach the program because macOS routes it to Ghostty's Edit menu, so the footer and the README now name `opt+c`. The same applies to `cmd+a`; remapping them in the Ghostty config has no effect.
+
+
 ## v0.2.2-floriankappert.2 - 2026-09-09
 
 ### Added
